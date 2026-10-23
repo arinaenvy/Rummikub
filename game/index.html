@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rummikub — you vs. computer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  /* All styles live inside the output frame, so they cannot restyle the host page. */
+  * { box-sizing:border-box; }
+  body { margin:0; padding:18px; background:#0c2822; color:#f3f3e7;
+         font:15px/1.45 Arial,sans-serif; }
+  main { max-width:1100px; margin:auto; }
+  h1 { margin:0; font-size:28px; letter-spacing:-1px; }
+  h2 { margin:0 0 10px; font-size:17px; }
+  p { margin:8px 0; }
+  .muted { color:#b7ccc2; font-size:13px; }
+  .top, .tools, .stats, .rowhead { display:flex; flex-wrap:wrap; gap:9px; align-items:center; }
+  .top { justify-content:space-between; margin-bottom:14px; }
+  button, select { font:inherit; border:1px solid #51796a; border-radius:8px;
+                   background:#214d3e; color:#fff; padding:9px 12px; }
+  button { cursor:pointer; }
+  button:hover:not(:disabled) { filter:brightness(1.15); }
+  button:disabled { opacity:.42; cursor:default; }
+  button:focus-visible, select:focus-visible, summary:focus-visible {
+    outline:3px solid #ffdd70; outline-offset:3px;
+  }
+  .primary { background:#e8d58e; border-color:#e8d58e; color:#152b20; font-weight:bold; }
+  .small { padding:5px 9px; font-size:12px; }
+  .panel { background:#12392e; border:1px solid #3c6455; border-radius:14px;
+           padding:16px; margin-bottom:14px; }
+  .stats { justify-content:space-between; margin-bottom:10px; font-size:14px; }
+  .badge { background:#214d3e; border-radius:8px; padding:7px 10px; }
+  #clock { font-variant-numeric:tabular-nums; }
+  #clock.urgent { background:#8c302f; color:white; }
+  #message { min-height:44px; padding:10px 13px; border-radius:8px;
+             background:#214d3e; margin:10px 0; }
+  #message.error { background:#713b35; }
+  /* The table scrolls independently, leaving the rack and controls nearby. */
+  #table { min-height:145px; max-height:350px; overflow:auto; padding:4px; }
+  .meld { border:1px solid #5f8575; border-radius:10px; padding:10px;
+          margin-bottom:9px; background:#1b4a38; }
+  .meld.invalid { border:2px dashed #e3a596; }
+  .rowhead { justify-content:space-between; margin-bottom:8px; font-size:12px; }
+  .rowhead select { max-width:230px; padding:4px; font-size:12px; }
+  .tiles { display:flex; flex-wrap:wrap; gap:6px; min-height:68px; align-content:flex-start; }
+  /* Ivory tiles have large numbers, color labels, and a clear selection outline. */
+  .tile { position:relative; width:45px; min-width:45px; height:65px; padding:2px;
+          background:#fff4d8; border:1px solid #e0cc9b; border-bottom:4px solid #bba16e;
+          border-radius:7px; color:#202122; display:inline-flex; flex-direction:column;
+          align-items:center; justify-content:center; vertical-align:top; }
+  .tile .number { font-size:27px; font-weight:bold; line-height:1.05; }
+  .tile .name { font-size:8px; font-weight:bold; text-transform:uppercase; margin-top:4px; }
+  .tile .face { font-size:9px; color:#4d4e44; line-height:1; }
+  .tile.red { color:#bc282b; } .tile.blue { color:#205eb8; }
+  .tile.black { color:#242424; } .tile.orange { color:#ac5000; }
+  .tile.joker { color:#7352a7; }
+  .tile.selected { outline:3px solid #ffdb65; outline-offset:1px; transform:translateY(-2px); }
+  .tile:disabled { opacity:1; cursor:default; } /* Locked tiles remain readable. */
+  #rack { padding:12px; border-radius:10px; background:#0e2c22; margin:10px 0; }
+  #selected { font-size:13px; color:#ffdf83; min-height:20px; margin:8px 0; }
+  #log { max-height:150px; overflow:auto; margin:8px 0 0; padding-left:24px; color:#c4d6cd; }
+  details { margin-top:12px; } summary { cursor:pointer; color:#ebd795; }
+  #finished { background:#234d37; border:2px solid #e8d58e; }
+  [hidden] { display:none !important; }
+  @media(max-width:600px) { body { padding:8px; } .panel { padding:10px; } .tile { width:41px; min-width:41px; } }
+</style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <div><h1>Rummikub</h1><div class="muted">Classic tiles · you vs. computer</div></div>
+    <button id="newGame">New game</button>
+  </div>
+
+  <!-- The clock starts only after the player deliberately starts a game. -->
+  <section id="setup" class="panel">
+    <h2>Ready to play?</h2>
+    <p>Click tiles to select them, then choose <b>New set</b> or <b>Add selected here</b>.
+       Your first play must total at least <b>30</b>. After opening, you can rearrange the table.</p>
+    <div class="tools">
+      <label for="timing">Turn limit:</label>
+      <select id="timing"><option value="60">Classic — 60 seconds</option>
+        <option value="0">Practice — no timer</option></select>
+      <button id="start" class="primary">Start game</button>
+      <button id="cancelNew" hidden>Keep playing</button>
+    </div>
+    <p class="muted">106 tiles · 14 each · 2 jokers · runs of 3+ · groups of 3 or 4</p>
+  </section>
+
+  <div id="game" hidden>
+    <div class="stats"><span id="turn" class="badge"></span><span id="pool" class="badge"></span>
+      <span id="opponent" class="badge"></span><span id="clock" class="badge"></span></div>
+    <div id="message" role="status" aria-live="polite"></div>
+    <section id="finished" class="panel" hidden></section>
+    <section class="panel">
+      <h2>Shared table</h2><div id="table"></div>
+    </section>
+    <section class="panel">
+      <div class="top"><h2 id="rackTitle">Your rack</h2><span id="opening" class="muted"></span></div>
+      <div class="tools">
+        <button id="sortColor" class="small">Sort by color</button>
+        <button id="sortNumber" class="small">Sort by number</button>
+        <button id="clear" class="small">Clear selection</button>
+        <button id="hint" class="small">Suggest move</button>
+      </div>
+      <div id="rack" class="tiles"></div><div id="selected"></div>
+      <div class="tools">
+        <button id="newSet">New set from selected</button>
+        <button id="return">Return selected to rack</button>
+        <button id="undo">Undo move</button><button id="reset">Reset turn</button>
+      </div>
+      <div class="tools" style="margin-top:12px">
+        <button id="end" class="primary">End turn</button>
+        <button id="draw">Draw 1 &amp; end turn</button>
+        <button id="blocked" hidden>Finish blocked game</button>
+      </div>
+      <p class="muted">Table tiles must stay on the table. Drawing cancels uncommitted edits.
+        Undo and Reset do not restart your clock.</p>
+    </section>
+    <details><summary>Game log</summary><ol id="log"></ol></details>
+  </div>
+
+  <details id="help"><summary>How to play · rules and controls</summary>
+    <div class="panel" style="margin-top:10px">
+      <p><b>Goal:</b> empty your rack before the computer.</p>
+      <p><b>Groups:</b> 3 or 4 equal numbers, all different colors. Example: red 8, blue 8, black 8.</p>
+      <p><b>Runs:</b> 3 or more consecutive numbers of one color. Example: blue 4, 5, 6.
+        A 1 is low; 12, 13, 1 is invalid.</p>
+      <p><b>Opening:</b> play one or more new sets worth at least 30 points, entirely from your rack.
+        Table manipulation becomes available on your following turns.</p>
+      <p><b>Click to move:</b> click tiles to select or deselect them. Choose New set, or click
+        Add selected here beside a table set. You can temporarily leave an invalid set while rearranging;
+        everything must be valid when you end your turn.</p>
+      <p><b>Rearranging:</b> after opening, select tiles from existing sets and move them into other sets.
+        You may split runs or rebuild groups. Every old table tile must remain on the table,
+        and you must add at least one tile from your rack.</p>
+      <p><b>Jokers:</b> a star substitutes for a needed tile. Its small label shows its current meaning.
+        If more than one meaning is possible, use the set's dropdown. You may free and reuse a table
+        joker after opening, but it must end this turn in a valid set; it cannot enter your rack.</p>
+      <p><b>Drawing:</b> draw one tile when you cannot or choose not to play. Drawing ends your turn;
+        you cannot immediately play the drawn tile.</p>
+      <p><b>Clock:</b> the default is 60 seconds. Timeout restores the start-of-turn layout and draws one
+        tile. An unfinished invalid arrangement at timeout instead draws three penalty tiles.
+        Practice mode removes the time limit. The clock continues if you switch browser tabs.</p>
+      <p><b>End and scoring:</b> emptying your rack wins the game. The other rack's numbers are added up,
+        with each remaining joker worth 30; the winner gains that total and the loser loses it.
+        If the pool is empty and both players pass, continue if a move remains. Otherwise use
+        Finish blocked game; the lower rack total wins the difference.</p>
+      <p><b>Suggest move:</b> stages a possible play for you to review. Click End turn to accept it,
+        or Undo to continue your own arrangement. The computer uses the same search and cannot see your rack.</p>
+    </div>
+  </details>
+</main>
+<!-- All game code is inserted here; no script is downloaded from the internet. -->
+<script>
+// This engine contains the rules. It never reads the screen or the other rack.
+const Rummy = (() => {
+  'use strict'; // Catch accidental assignments instead of silently accepting them.
+  const colors = ['Red', 'Blue', 'Black', 'Orange']; // Four standard tile colors.
+  const tiles = []; // Each physical tile gets its own ID, including duplicates.
+  for (let color = 0; color < 4; color++) {
+    for (let number = 1; number <= 13; number++) {
+      for (let copy = 0; copy < 2; copy++) {
+        tiles.push({id: tiles.length, color, number, type: color * 13 + number - 1});
+      }
+    }
+  }
+  // Type 52 means joker; the two jokers still have different physical IDs.
+  for (let j = 0; j < 2; j++) tiles.push({id: tiles.length, color: -1, number: 0, type: 52});
+  const clone = value => JSON.parse(JSON.stringify(value)); // Copy plain game data.
+  const value = id => tiles[id].type === 52 ? 30 : tiles[id].number; // Rack penalty.
+  const rackPoints = rack => rack.reduce((sum, id) => sum + value(id), 0);
+  const flat = table => table.flatMap(row => row.tiles); // All physical table IDs.
+  const same = (a, b) => {
+    const x=[...a].sort((p,q)=>p-q), y=[...b].sort((p,q)=>p-q);
+    return x.length===y.length && x.every((id,i)=>id===y[i]);
+  };
+
+  // Fisher–Yates shuffling gives every order the same chance.
+  function shuffle(ids) {
+    const result = [...ids]; // Do not change the source array.
+    for (let i = result.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [result[i], result[j]] = [result[j], result[i]];
+    }
+    return result;
+  }
+
+  // Return EVERY legal interpretation of one set, including joker meanings.
+  // The renderer can offer a choice when a joker can go at either end of a run.
+  function forms(ids) {
+    if (ids.length < 3 || ids.length > 13 || new Set(ids).size !== ids.length) return [];
+    if (ids.some(id => !Number.isInteger(id) || !tiles[id])) return [];
+    const real = ids.filter(id => tiles[id].type !== 52);
+    const jokers = ids.filter(id => tiles[id].type === 52).sort((a,b)=>a-b);
+    if (!real.length) return []; // There are only two jokers in a real game.
+    const result = [], first = tiles[real[0]];
+
+    // A group has 3–4 equal numbers, with no repeated color.
+    if (ids.length <= 4 && real.every(id => tiles[id].number === first.number) &&
+        new Set(real.map(id => tiles[id].color)).size === real.length) {
+      const missing = [0,1,2,3].filter(c => !real.some(id => tiles[id].color === c));
+      const faces = {};
+      real.forEach(id => faces[id] = {number: first.number, color: tiles[id].color});
+      jokers.forEach((id,i) => faces[id] = {number: first.number, color: missing[i]});
+      const ordered = [...ids].sort((a,b)=>faces[a].color-faces[b].color);
+      result.push({key: 'g' + first.number, label: 'Group of ' + first.number + 's',
+                   points: first.number * ids.length, ordered, faces});
+    }
+
+    // A run has consecutive numbers of ONE color. 13 never wraps around to 1.
+    if (real.every(id => tiles[id].color === first.color) &&
+        new Set(real.map(id => tiles[id].number)).size === real.length) {
+      const numbers = real.map(id => tiles[id].number);
+      const low = Math.max(1, Math.max(...numbers) - ids.length + 1);
+      const high = Math.min(Math.min(...numbers), 14 - ids.length);
+      for (let start = low; start <= high; start++) {
+        const faces = {}, missing = [];
+        for (let n = start; n < start + ids.length; n++) {
+          if (!numbers.includes(n)) missing.push(n);
+        }
+        if (missing.length !== jokers.length) continue;
+        real.forEach(id => faces[id] = {number: tiles[id].number, color: first.color});
+        jokers.forEach((id,i) => faces[id] = {number: missing[i], color: first.color});
+        const ordered = [...ids].sort((a,b)=>faces[a].number-faces[b].number);
+        const end = start + ids.length - 1;
+        result.push({key: 'r' + first.color + ':' + start + ':' + ids.length,
+          label: colors[first.color] + ' run ' + start + '–' + end,
+          points: (start + end) * ids.length / 2, ordered, faces});
+      }
+    }
+    // Prefer the interpretation with the largest legal opening-meld value.
+    return result.sort((a,b)=>b.points-a.points || a.key.localeCompare(b.key));
+  }
+
+  // Honor an explicit joker interpretation if it is still legal after an edit.
+  function form(row) {
+    const options = forms(row.tiles);
+    return options.find(option => option.key === row.choice) || options[0] || null;
+  }
+
+  // Validate an entire turn, rather than requiring every intermediate edit to work.
+  function audit(original, draft, opened) {
+    if (new Set(draft.table.map(row=>row.id)).size !== draft.table.length) {
+      return {ok:false,reason:'Set identifiers overlap. Reset this turn.'};
+    }
+    const oldTable = flat(original.table), newTable = flat(draft.table);
+    const before = [...oldTable, ...original.rack], after = [...newTable, ...draft.rack];
+    if (new Set(after).size !== after.length || !same(before, after)) {
+      return {ok: false, reason: 'A tile is missing or duplicated. Reset this turn.'};
+    }
+    if (oldTable.some(id => !newTable.includes(id))) {
+      return {ok: false, reason: 'Tiles already on the table must stay on the table.'};
+    }
+    if (draft.rack.some(id => !original.rack.includes(id))) {
+      return {ok: false, reason: 'A table tile cannot be taken into your rack.'};
+    }
+    const played = original.rack.length - draft.rack.length;
+    if (played < 1) return {ok: false, reason: 'Play at least one rack tile, or draw to end your turn.'};
+    let openingPoints = 0;
+    for (const row of draft.table) {
+      const info = form(row);
+      if (!info) return {ok: false, reason: 'Every set must be a valid group or run of at least 3 tiles.'};
+      if (!row.tiles.some(id => oldTable.includes(id))) openingPoints += info.points;
+    }
+    if (!opened) {
+      // The first meld must use only rack tiles. Old table sets remain untouched.
+      for (const old of original.table) {
+        const now = draft.table.find(row => row.id === old.id);
+        if (!now || !same(old.tiles, now.tiles) || form(old).key !== form(now).key) {
+          return {ok: false, reason: 'Your opening meld must come entirely from your rack.'};
+        }
+      }
+      if (openingPoints < 30) {
+        return {ok: false, reason: 'Your opening meld totals ' + openingPoints + '; you need at least 30.'};
+      }
+    }
+    return {ok: true, played, openingPoints};
+  }
+
+  // Counts let the computer search without treating identical copies as different moves.
+  function counts(ids) {
+    const result = Array(53).fill(0);
+    ids.forEach(id => result[tiles[id].type]++);
+    return result;
+  }
+
+  // Enumerate legal meld PATTERNS available from a given collection of tiles.
+  function patterns(available) {
+    const found = new Map(), jokerCount = available[52];
+    function add(types, points) {
+      const sorted = [...types].sort((a,b)=>a-b), key = sorted.join(',');
+      const old = found.get(key);
+      if (old && old.points >= points) return; // Equivalent joker use needs one pattern.
+      const frequencies = new Map();
+      sorted.forEach(t => frequencies.set(t, (frequencies.get(t) || 0) + 1));
+      found.set(key, {types: sorted, need: [...frequencies], points});
+    }
+    for (let number = 1; number <= 13; number++) {
+      // A four-bit mask selects which colors supply ordinary tiles in a group.
+      for (let mask = 1; mask < 16; mask++) {
+        const types = [0,1,2,3].filter(c => mask & (1 << c)).map(c=>c*13+number-1);
+        if (types.some(t => !available[t])) continue;
+        for (let size = 3; size <= 4; size++) {
+          const missing = size - types.length;
+          if (missing >= 0 && missing <= jokerCount) add([...types, ...Array(missing).fill(52)], number * size);
+        }
+      }
+    }
+    for (let color = 0; color < 4; color++) {
+      for (let start = 1; start <= 11; start++) {
+        for (let end = start + 2; end <= 13; end++) {
+          const types = [];
+          // A joker may substitute even when a real copy could be saved for another set.
+          function extend(number, usedJokers) {
+            if (number > end) { add(types, (start + end) * (end - start + 1) / 2); return; }
+            const type = color * 13 + number - 1;
+            if (available[type]) { types.push(type); extend(number + 1, usedJokers); types.pop(); }
+            if (usedJokers < jokerCount) { types.push(52); extend(number + 1, usedJokers + 1); types.pop(); }
+          }
+          extend(start, 0);
+        }
+      }
+    }
+    return [...found.values()];
+  }
+
+  // Search for a combination of melds that includes every required table tile.
+  // Rack tiles are optional. The goal is to play as many of them as possible.
+  // A time budget keeps a large table from freezing the browser indefinitely.
+  function search(availableInput, requiredInput, minimum, deadline, incumbent = 0) {
+    const available = [...availableInput], required = [...requiredInput];
+    const all = patterns(available), byType = Array.from({length:53}, ()=>[]);
+    all.forEach(p => p.need.forEach(([t]) => byType[t].push(p)));
+    let best = null, bestUsed = incumbent, nodes = 0;
+    const memo = new Map(), path = [];
+    const fits = p => p.need.every(([t,n]) => available[t] >= n);
+    const totalRack = available.reduce((s,n,t)=>s+n-required[t],0);
+    function visit(used, openingPoints) {
+      if (++nodes > 24000 || performance.now() > deadline || bestUsed === totalRack) return;
+      const outstanding = required.reduce((a,b)=>a+b,0);
+      if (!outstanding && used > bestUsed && openingPoints >= minimum) {
+        bestUsed = used; best = [...path]; // A complete, legal candidate solution.
+      }
+      const possible = available.reduce((s,n,t)=>s+n-required[t],0);
+      if (used + possible <= bestUsed) return; // This branch cannot improve the result.
+      const key = available.join('.') + '|' + required.join('.');
+      const seen = memo.get(key);
+      if (seen && seen.used >= used && seen.points >= openingPoints) return;
+      memo.set(key, {used, points: openingPoints});
+
+      let type = -1, choices = [];
+      if (outstanding) {
+        // First cover the table type with the fewest available meld patterns.
+        const candidates = required.map((n,t)=>n ? t : -1).filter(t=>t>=0)
+          .sort((a,b)=>byType[a].length-byType[b].length);
+        type = candidates[0]; choices = byType[type].filter(fits);
+        if (!choices.length) return; // Leaving an old table tile unused is illegal.
+      } else {
+        // Once all table tiles are covered, search the remaining optional rack tiles.
+        for (let t = 0; t < 53; t++) {
+          if (!available[t]) continue;
+          const options = byType[t].filter(fits);
+          if (options.length) { type = t; choices = options; break; }
+        }
+        if (type < 0) return;
+      }
+      const fromRack = p => p.need.reduce((s,[t,n])=>s+Math.max(0,n-required[t]),0);
+      choices.sort((a,b)=>fromRack(b)-fromRack(a) || b.types.length-a.types.length || b.points-a.points);
+      for (const p of choices) {
+        if (performance.now() > deadline) break;
+        let added = 0; const taken = [];
+        for (const [t,n] of p.need) {
+          const old = Math.min(n, required[t]); // Use table copies before rack copies.
+          taken.push([t,n,old]); available[t] -= n; required[t] -= old; added += n-old;
+        }
+        path.push(p); visit(used + added, openingPoints + p.points); path.pop();
+        taken.forEach(([t,n,old])=>{available[t]+=n; required[t]+=old;});
+      }
+      if (!outstanding) {
+        // Keeping this optional tile in the rack is also a legitimate choice.
+        const saved = available[type]; available[type] = 0;
+        visit(used, openingPoints); available[type] = saved;
+      }
+    }
+    visit(0, 0);
+    return best;
+  }
+
+  // Turn abstract patterns back into physical IDs, preserving all old table copies.
+  function materialize(plan, rack, table) {
+    const old = flat(table), buckets = Array.from({length:53}, ()=>[]);
+    [...old, ...rack].forEach(id => buckets[tiles[id].type].push(id));
+    const rows = plan.map((p,i)=>({id:'plan'+i, tiles:p.types.map(t=>buckets[t].shift()), choice:null}));
+    const used = new Set(flat(rows));
+    return {table:rows, rack:rack.filter(id=>!used.has(id)), played:rack.filter(id=>used.has(id)).length};
+  }
+
+  // The computer and Hint use the same solver with ONLY the current player's rack.
+  // It searches real legal moves, but the time budget means it is not a perfect player.
+  function solve(rack, table, opened, budget = 650) {
+    const begun = performance.now(), deadline = begun + budget;
+    const zero = Array(53).fill(0);
+    const own = search(counts(rack), zero, opened ? 0 : 30, begun + Math.min(150,budget/3));
+    let best = own ? materialize(own, rack, []) : null;
+    // A unique row ID keeps new sets distinct even after many consecutive turns.
+    function appendRows(base, extra) {
+      const used=new Set(base.map(row=>row.id)); let sequence=0;
+      return [...base,...extra.map(row=>{
+        let id; do {id='new'+(++sequence);} while(used.has(id)); used.add(id);
+        return {...row,id};
+      })];
+    }
+    if (best) best.table = appendRows(clone(table),best.table);
+    // Opening cannot borrow table tiles; audit even this simpler route.
+    if (!opened) return best&&audit({rack,table},best,false).ok?best:null;
+
+    // Try simple extensions first; they are quick and often beat a complicated reshuffle.
+    const extended = {table:clone(table), rack:[...rack]};
+    for (let i = 0; i < extended.rack.length;) {
+      const id = extended.rack[i];
+      const row = extended.table.find(r=>forms([...r.tiles,id]).length);
+      if (row) { row.tiles.push(id); row.choice = null; extended.rack.splice(i,1); i=0; }
+      else i++;
+    }
+    if (extended.rack.length < rack.length) {
+      const extras = search(counts(extended.rack), zero, 0, Math.min(deadline,performance.now()+100));
+      if (extras) {
+        const extra = materialize(extras, extended.rack, []);
+        extended.table=appendRows(extended.table,extra.table); extended.rack = extra.rack;
+      }
+      extended.played = rack.length-extended.rack.length;
+      if (!best || extended.played > best.played) best = extended;
+    }
+    if (table.length && (!best || best.played < rack.length) && performance.now()<deadline) {
+      // This search can split runs, move group tiles, and reuse table jokers.
+      const old = flat(table);
+      const combined = search(counts([...old,...rack]), counts(old), 0, deadline, best ? best.played : 0);
+      if (combined) best = materialize(combined,rack,table);
+    }
+    // A final audit is independent of the search; no illegal computer move is accepted.
+    if (best && audit({rack,table},best,opened).ok) return best;
+    return null; // Drawing is legal even when a bounded search overlooks a move.
+  }
+  return {colors,tiles,clone,value,rackPoints,flat,same,shuffle,forms,form,audit,counts,patterns,solve};
+})();
+
+// This section connects the rules engine to buttons on the game page.
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id); // Short way to find an element by ID.
+  const E = Rummy; // The rules engine above; it contains no hidden-rack access.
+  const names = ['You', 'Computer']; // Player 0 is human; player 1 is the computer.
+  const classNames = ['red','blue','black','orange']; // Match the four CSS colors.
+  let game = null, draft = null, original = null; // Committed game and editable turn.
+  let selection = new Set(), undo = []; // Selected tile IDs and prior editing states.
+  let rowId = 0, epoch = 0, aiJob = null; // Unique rows and cancellation of old jobs.
+  let deadline = 0, busy = false; // Current turn's clock and temporary search lock.
+  let totals = [0,0], wins = [0,0], games = 0; // Session scores across fresh games.
+
+  // Set text safely; messages never interpret player text as HTML.
+  function message(text, error = false) {
+    $('message').textContent = text;
+    $('message').className = error ? 'error' : '';
+  }
+  function log(text) {
+    game.log.push(text); // Retain a record of draws, openings, and scores.
+    const li = document.createElement('li'); li.textContent = text;
+    $('log').appendChild(li); $('log').scrollTop = $('log').scrollHeight;
+  }
+  const playing = () => game && !game.over;
+  const human = () => playing() && game.turn === 0 && !busy;
+  const freshRow = ids => ({id:'set'+(++rowId), tiles:[...ids], choice:null});
+
+  // Sort only changes rack presentation; it never moves tiles onto the table.
+  function sortRack(mode = 'color') {
+    if (!human()) return;
+    draft.rack.sort((a,b)=>{
+      const x=E.tiles[a], y=E.tiles[b];
+      if (x.type===52 || y.type===52) return (x.type===52)-(y.type===52) || a-b;
+      return mode==='color' ? x.color-y.color || x.number-y.number || a-b
+        : x.number-y.number || x.color-y.color || a-b;
+    });
+    render();
+  }
+
+  // Build a clickable tile. Real IDs distinguish the two copies of a number.
+  function tileButton(id, face = null, disabled = false) {
+    const tile=E.tiles[id], joker=tile.type===52;
+    const button=document.createElement('button');
+    button.type='button'; button.className='tile '+(joker?'joker':classNames[tile.color]);
+    if (selection.has(id)) button.classList.add('selected');
+    button.disabled=disabled; button.dataset.tile=String(id);
+    button.setAttribute('aria-pressed',String(selection.has(id)));
+    const label=joker ? 'Joker' : E.colors[tile.color]+' '+tile.number;
+    button.setAttribute('aria-label',label+(joker&&face?' representing '+E.colors[face.color]+' '+face.number:''));
+    const number=document.createElement('span'); number.className='number';
+    number.textContent=joker?'★':String(tile.number); button.appendChild(number);
+    const name=document.createElement('span'); name.className='name';
+    name.textContent=joker?'JOKER':E.colors[tile.color]; button.appendChild(name);
+    if (joker&&face) {
+      const meaning=document.createElement('span'); meaning.className='face';
+      meaning.textContent=E.colors[face.color][0]+face.number; button.appendChild(meaning);
+    }
+    return button;
+  }
+
+  // Redraw the board from data; the click handlers stay on the parent containers.
+  function render() {
+    if (!game) return;
+    const canPlay=human(), table=game.turn===0&&!game.over?draft.table:game.table;
+    const rack=game.turn===0&&!game.over?draft.rack:game.racks[0];
+    $('turn').textContent=game.over?'Game finished':names[game.turn]+' — turn '+game.turnNumber;
+    $('pool').textContent='Pool: '+game.pool.length;
+    $('opponent').textContent='Computer: '+game.racks[1].length+' tiles · '+(game.opened[1]?'opened':'needs 30');
+    $('rackTitle').textContent='Your rack · '+rack.length+' tiles';
+    $('opening').textContent=game.opened[0]?'Opened — table rearrangement allowed':'Opening required: 30+ from your rack';
+    $('table').replaceChildren();
+    if (!table.length) {
+      const p=document.createElement('p'); p.className='muted';
+      p.textContent='The table is empty. Select a run or group from your rack, then click New set.';
+      $('table').appendChild(p);
+    }
+    table.forEach((row,index)=>{
+      const options=E.forms(row.tiles), info=E.form(row);
+      const card=document.createElement('div'); card.className='meld'+(info?'':' invalid');
+      const head=document.createElement('div'); head.className='rowhead';
+      const title=document.createElement('span');
+      title.textContent='Set '+(index+1)+' · '+(info?info.label+' · '+info.points+' points':'Incomplete / invalid');
+      head.appendChild(title);
+      const locked=!game.opened[0]&&original&&original.table.some(old=>old.id===row.id);
+      if (options.length>1) {
+        const select=document.createElement('select'); select.dataset.choice=row.id;
+        select.setAttribute('aria-label','Joker interpretation for set '+(index+1));
+        options.forEach(option=>{
+          const item=document.createElement('option'); item.value=option.key;
+          item.textContent=option.label+' ('+option.points+')'; item.selected=option.key===info.key;
+          select.appendChild(item);
+        });
+        select.disabled=!canPlay||locked; head.appendChild(select);
+      }
+      const add=document.createElement('button'); add.className='small'; add.dataset.add=row.id;
+      add.textContent='Add selected here'; add.disabled=!canPlay||locked||!selection.size;
+      head.appendChild(add); card.appendChild(head);
+      const line=document.createElement('div'); line.className='tiles';
+      (info?info.ordered:row.tiles).forEach(id=>line.appendChild(tileButton(id,info?info.faces[id]:null,!canPlay||locked)));
+      card.appendChild(line); $('table').appendChild(card);
+    });
+    $('rack').replaceChildren();
+    rack.forEach(id=>$('rack').appendChild(tileButton(id,null,!canPlay)));
+    $('selected').textContent=selection.size?selection.size+' selected — choose a destination.':'Click tiles to select them.';
+    for (const id of ['sortColor','sortNumber','clear','hint','newSet','return','undo','reset','end','draw']) {
+      $(id).disabled=!canPlay;
+    }
+    $('newSet').disabled=!canPlay||!selection.size;
+    $('return').disabled=!canPlay||!selection.size;
+    $('clear').disabled=!canPlay||!selection.size;
+    $('undo').disabled=!canPlay||!undo.length;
+    $('blocked').hidden=!(canPlay&&game.pool.length===0&&game.passes>=2);
+    $('draw').textContent=game.pool.length?'Draw 1 & end turn':'Pass — pool empty';
+    tick(); // Refresh the visible timer without changing its deadline.
+  }
+
+  // A whole-turn snapshot enables rollback after invalid moves or a timeout.
+  function beginTurn() {
+    original={table:E.clone(game.table),rack:[...game.racks[game.turn]]};
+    draft=E.clone(original); selection.clear(); undo=[]; busy=false;
+    deadline=game.seconds?Date.now()+game.seconds*1000:0;
+    if (game.turn===0) {
+      message(game.passes>=2&&!game.pool.length
+        ?'Both players passed with an empty pool. Keep playing if a move remains; otherwise finish the blocked game.'
+        :'Your turn. Build sets, then click End turn; or draw one tile.');
+      sortRack();
+    } else {
+      message('The computer is considering its move…'); render();
+      const token=epoch;
+      aiJob=setTimeout(()=>{if(token===epoch&&playing()&&game.turn===1) computerTurn();},450);
+    }
+  }
+  function nextTurn() {
+    game.turn=1-game.turn; game.turnNumber++; beginTurn();
+  }
+
+  // Save an undo step before moving anything. The clock intentionally keeps running.
+  function checkpoint() { undo.push(E.clone(draft)); selection=new Set(selection); }
+  function moveSelected(destination) {
+    if (!human()||!selection.size) return;
+    const moving=[...selection], tableIds=E.flat(original.table);
+    if (!game.opened[0]&&moving.some(id=>tableIds.includes(id))) {
+      message('Complete your opening meld before using table tiles.',true); return;
+    }
+    if (destination==='rack'&&moving.some(id=>tableIds.includes(id))) {
+      message('Table tiles must stay on the table. Only tiles you added this turn can return to your rack.',true); return;
+    }
+    if (!['rack','new'].includes(destination)&&!game.opened[0]&&original.table.some(r=>r.id===destination)) {
+      message('Your opening meld must use new sets made entirely from your rack.',true); return;
+    }
+    checkpoint();
+    draft.rack=draft.rack.filter(id=>!selection.has(id));
+    draft.table.forEach(row=>{
+      if (row.tiles.some(id=>selection.has(id))) row.choice=null;
+      row.tiles=row.tiles.filter(id=>!selection.has(id));
+    });
+    if (destination==='rack') draft.rack.push(...moving);
+    else if (destination==='new') draft.table.push(freshRow(moving));
+    else {
+      const target=draft.table.find(row=>row.id===destination);
+      if (target) { target.tiles.push(...moving); target.choice=null; }
+    }
+    draft.table=draft.table.filter(row=>row.tiles.length); // Remove emptied rows.
+    selection.clear(); message('Move staged. Every set must be valid before you end your turn.'); render();
+  }
+
+  // Commit only after the independent rules validator accepts the whole position.
+  function commit(candidate) {
+    const check=E.audit(original,candidate,game.opened[game.turn]);
+    if (!check.ok) { message(check.reason,true); return false; }
+    const who=game.turn, opening=!game.opened[who];
+    game.table=candidate.table.map(row=>({...freshRow(row.tiles),choice:E.form(row).key}));
+    game.racks[who]=[...candidate.rack]; game.opened[who]=true; game.passes=0;
+    log(names[who]+' played '+check.played+' tile'+(check.played===1?'':'s')+
+      (opening?' and opened with '+check.openingPoints+' points.':'.'));
+    if (!game.racks[who].length) finish(who,false);
+    else nextTurn();
+    return true;
+  }
+
+  // Drawing always uses the committed rack, automatically undoing draft experiments.
+  function drawAndEnd(count=1, reason='') {
+    const who=game.turn, drawn=Math.min(count,game.pool.length);
+    for (let i=0;i<drawn;i++) game.racks[who].push(game.pool.pop());
+    log(names[who]+(drawn?' drew '+drawn+' tile'+(drawn===1?'':'s'):' passed; the pool is empty')+
+      (reason?' — '+reason:'.'));
+    game.passes=drawn?0:game.passes+1;
+    nextTurn();
+  }
+
+  // The computer sees the public table plus its own rack, never the human's rack.
+  function computerTurn() {
+    const plan=E.solve(game.racks[1],game.table,game.opened[1]);
+    if (plan&&commit(plan)) return;
+    drawAndEnd(); // Choosing to draw is legal even if a difficult move was missed.
+  }
+
+  // Display a result and two-player zero-sum scoring.
+  function finish(winner, blocked) {
+    clearTimeout(aiJob); game.over=true; busy=false; selection.clear();
+    const remaining=game.racks.map(E.rackPoints);
+    let award=winner===null?0:blocked?Math.abs(remaining[0]-remaining[1]):remaining[1-winner];
+    const change=[0,0];
+    if (winner!==null) { change[winner]=award; change[1-winner]=-award; wins[winner]++; }
+    totals=totals.map((n,i)=>n+change[i]); games++;
+    const result=winner===null?'A tied blocked game.':names[winner]+(winner===0?' win!':' wins!');
+    const box=$('finished'); box.hidden=false; box.replaceChildren();
+    const h=document.createElement('h2'); h.textContent=result; box.appendChild(h);
+    const p=document.createElement('p');
+    p.textContent='This game — You: '+(change[0]>=0?'+':'')+change[0]+', Computer: '+(change[1]>=0?'+':'')+change[1]+
+      '. Rack totals: '+remaining[0]+' / '+remaining[1]+'.'; box.appendChild(p);
+    const total=document.createElement('p'); total.className='muted';
+    total.textContent='Session: '+games+' games · Points '+totals[0]+' / '+totals[1]+' · Wins '+wins[0]+' / '+wins[1];
+    box.appendChild(total);
+    log(result+' Score: '+change[0]+' / '+change[1]+'.');
+    message('Choose New game for another deal.'); render();
+  }
+
+  // Start-player draws are returned before the actual deal, as in the physical game.
+  function startGame() {
+    epoch++; clearTimeout(aiJob); rowId=0;
+    const ids=E.tiles.map(t=>t.id); let a,b;
+    do { [a,b]=E.shuffle(ids.filter(id=>E.tiles[id].type!==52)); }
+    while(E.tiles[a].number===E.tiles[b].number); // Redraw ties.
+    const pool=E.shuffle(ids), racks=[pool.splice(0,14),pool.splice(0,14)];
+    game={pool,racks,table:[],opened:[false,false],turn:E.tiles[a].number>E.tiles[b].number?0:1,
+      turnNumber:1,seconds:Number($('timing').value),over:false,passes:0,log:[]};
+    $('log').replaceChildren(); $('setup').hidden=true; $('game').hidden=false; $('finished').hidden=true;
+    log('Starting draw: You '+E.tiles[a].number+', Computer '+E.tiles[b].number+'. '+names[game.turn]+' start.');
+    beginTurn();
+  }
+
+  // The clock uses elapsed wall time, so changing tabs does not grant extra time.
+  function tick() {
+    if (!game) return;
+    if (game.over) { $('clock').textContent='Finished'; return; }
+    if (!game.seconds) { $('clock').textContent='Practice · untimed'; $('clock').className='badge'; return; }
+    const left=Math.max(0,Math.ceil((deadline-Date.now())/1000));
+    $('clock').textContent=left+' seconds'; $('clock').className='badge'+(left<=10?' urgent':'');
+    if (left===0&&game.turn===0&&!busy) {
+      const altered=JSON.stringify(draft.table)!==JSON.stringify(original.table)||!E.same(draft.rack,original.rack);
+      const unfinished=altered&&!E.audit(original,draft,game.opened[0]).ok;
+      drawAndEnd(unfinished?3:1,unfinished?'unfinished arrangement at timeout':'time expired');
+    }
+  }
+
+  // Delegate clicks to containers so rendering new tiles does not lose their events.
+  function onTileClick(event) {
+    const target=event.target.closest('[data-tile]');
+    if (!human()||!target||target.disabled) return;
+    const id=Number(target.dataset.tile);
+    if (selection.has(id)) selection.delete(id); else selection.add(id);
+    render();
+  }
+  $('rack').addEventListener('click',onTileClick);
+  $('table').addEventListener('click',event=>{
+    const add=event.target.closest('[data-add]');
+    if(add&&!add.disabled) moveSelected(add.dataset.add); else onTileClick(event);
+  });
+  $('table').addEventListener('change',event=>{
+    const select=event.target.closest('[data-choice]');
+    if(!human()||!select||select.disabled) return;
+    checkpoint(); draft.table.find(row=>row.id===select.dataset.choice).choice=select.value; render();
+  });
+  $('start').addEventListener('click',startGame);
+  $('newGame').addEventListener('click',()=>{
+    $('setup').hidden=false; $('cancelNew').hidden=!playing();
+    $('setup').scrollIntoView({behavior:'smooth',block:'nearest'});
+  });
+  $('cancelNew').addEventListener('click',()=>{$('setup').hidden=true;});
+  $('sortColor').addEventListener('click',()=>sortRack('color'));
+  $('sortNumber').addEventListener('click',()=>sortRack('number'));
+  $('clear').addEventListener('click',()=>{selection.clear();render();});
+  $('newSet').addEventListener('click',()=>moveSelected('new'));
+  $('return').addEventListener('click',()=>moveSelected('rack'));
+  $('undo').addEventListener('click',()=>{
+    if(human()&&undo.length){draft=undo.pop();selection.clear();message('Last edit undone.');render();}
+  });
+  $('reset').addEventListener('click',()=>{
+    if(human()){checkpoint();draft=E.clone(original);selection.clear();message('Turn layout restored. Your clock continues.');render();}
+  });
+  $('end').addEventListener('click',()=>{if(human())commit(draft);});
+  $('draw').addEventListener('click',()=>{if(human())drawAndEnd();});
+  $('blocked').addEventListener('click',()=>{
+    if(!human()||game.pool.length||game.passes<2) return;
+    const a=E.rackPoints(game.racks[0]),b=E.rackPoints(game.racks[1]);
+    finish(a===b?null:a<b?0:1,true);
+  });
+  $('hint').addEventListener('click',()=>{
+    if(!human())return;
+    busy=true; const token=epoch; message('Looking for a legal move from your start-of-turn position…');render();
+    setTimeout(()=>{
+      if(token!==epoch||!playing()||game.turn!==0)return;
+      const plan=E.solve(original.rack,original.table,game.opened[0]); busy=false;
+      // Searching cannot bypass an expired turn deadline.
+      if(game.seconds&&Date.now()>=deadline){tick();return;}
+      if(plan){checkpoint();draft={rack:plan.rack,table:plan.table.map(row=>({...freshRow(row.tiles),choice:row.choice}))};
+        // Preserve locked old row IDs during the opening meld.
+        if(!game.opened[0])draft.table.splice(0,original.table.length,...E.clone(original.table));
+        selection.clear();message('Suggested play staged. Review it, then click End turn, or Undo.');}
+      else message('No move found in this search. You can still try your own arrangement or draw.');
+      render();
+    },50);
+  });
+  setInterval(tick,200); // One clock for the whole frame; new games reuse it.
+})();
+
+</script>
+
+<script>
+// Streamlit's component protocol keeps the frame fitted to the game, including
+// on phones. The game also works when index.html is opened on its own.
+(() => {
+  if (window.parent === window) return;
+  const send = (type, data = {}) => window.parent.postMessage(
+    {isStreamlitMessage: true, type, ...data}, '*'
+  );
+  let previousHeight = 0;
+  function resize() {
+    const style = getComputedStyle(document.body);
+    const height = Math.ceil(document.querySelector('main').getBoundingClientRect().height
+      + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom));
+    if (height !== previousHeight) {
+      previousHeight = height;
+      send('streamlit:setFrameHeight', {height});
+    }
+  }
+  window.addEventListener('message', event => {
+    if (event.source === window.parent && event.data?.type === 'streamlit:render') resize();
+  });
+  new ResizeObserver(resize).observe(document.querySelector('main'));
+  window.addEventListener('resize', resize);
+  send('streamlit:componentReady', {apiVersion: 1});
+  resize();
+})();
+</script>
+</body>
+</html>
