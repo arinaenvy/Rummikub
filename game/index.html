@@ -35,13 +35,42 @@
   #message { min-height:44px; padding:10px 13px; border-radius:8px;
              background:#214d3e; margin:10px 0; }
   #message.error { background:#713b35; }
-  /* The table scrolls independently, leaving the rack and controls nearby. */
-  #table { min-height:145px; max-height:350px; overflow:auto; padding:4px; }
+  /* Each area has a fixed footprint. Its complete tile grid scales to fit. */
+  #table { height:380px; display:grid; grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);
+    gap:10px; }
+  #table.has-drafts { grid-template-rows:minmax(0,1fr) minmax(80px,.4fr); }
+  .board-zone { min-width:0; min-height:0; display:flex; flex-direction:column;
+    border:1px solid #3c6455; border-radius:10px; background:#0e2c22; padding:8px; }
+  .board-zone h3 { margin:0 0 6px; font-size:13px; }
+  .board-zone h3 span { color:#b7ccc2; font-weight:normal; }
+  #draftsZone { grid-column:1 / -1; }
+  .fit-viewport { position:relative; min-width:0; min-height:0; flex:1; overflow:clip; }
+  .fit-content { position:absolute; top:0; left:0; transform-origin:top left; padding:4px; }
+  .meld-grid { display:flex; flex-wrap:wrap; align-items:flex-start; align-content:flex-start; gap:8px; }
+  .groups-grid { display:flex; align-items:flex-start; gap:8px; }
+  .groups-grid:has(.empty-zone) { flex-direction:column; align-items:center; }
+  .group-stack { display:flex; flex-direction:column; align-items:center; gap:8px; }
   .meld { border:1px solid #5f8575; border-radius:10px; padding:10px;
-          margin-bottom:9px; background:#1b4a38; }
+          background:#1b4a38; flex:none; }
   .meld.invalid { border:2px dashed #e3a596; }
   .rowhead { justify-content:space-between; margin-bottom:8px; font-size:12px; }
-  .rowhead select { max-width:230px; padding:4px; font-size:12px; }
+  .rowhead select { width:28px; padding:4px 0; font-size:12px; }
+  .set-actions { display:flex; gap:4px; align-items:center; }
+  .set-actions button { width:28px; height:28px; padding:0; font-size:20px; }
+  .meld .tiles { flex-wrap:nowrap; }
+  .group-row, .group-heading { display:grid; grid-template-columns:30px 198px 28px;
+    gap:6px; align-items:center; padding:15px 6px 6px; }
+  .group-row .rowhead { display:contents; }
+  .group-row .set-label { grid-column:1; grid-row:1; font-size:11px; }
+  .group-row .set-actions { grid-column:3; grid-row:1; flex-direction:column; }
+  .group-row .tiles, .group-colors { display:grid; grid-template-columns:repeat(4,45px);
+    gap:6px; grid-column:2; grid-row:1; padding:0; min-height:0; }
+  .group-heading { border:1px solid transparent; padding-top:0; padding-bottom:0;
+    font-size:10px; color:#c4d6cd; }
+  .group-colors { text-align:center; font-size:9px; font-weight:bold; }
+  .empty-slot { width:45px; height:65px; display:flex; align-items:center; justify-content:center;
+    border:1px dashed #51796a; border-radius:7px; color:#769b89; background:#12392e; }
+  .empty-zone { margin:5px; font-size:12px; color:#b7ccc2; }
   .tiles { display:flex; flex-wrap:wrap; gap:6px; min-height:68px; align-content:flex-start; }
   /* Ivory tiles have large numbers, color labels, and a clear selection outline. */
   .tile { position:relative; width:45px; min-width:45px; height:65px; padding:2px;
@@ -73,13 +102,20 @@
   #turnNotice { margin-top:5px; font-size:13px; color:#d3e5dc; }
   #tableLegend { margin:0 0 10px; }
   .tile:disabled { opacity:1; cursor:default; } /* Locked tiles remain readable. */
-  #rack { padding:12px; border-radius:10px; background:#0e2c22; margin:10px 0; }
+  #rack { height:160px; padding:12px; border-radius:10px; background:#0e2c22; margin:10px 0; }
+  #rackTiles { display:grid; grid-template-columns:repeat(auto-fill,45px); gap:14px 6px;
+    align-content:start; padding:12px 4px 4px; }
   #selected { font-size:13px; color:#ffdf83; min-height:20px; margin:8px 0; }
   #log { max-height:150px; overflow:auto; margin:8px 0 0; padding-left:24px; color:#c4d6cd; }
   details { margin-top:12px; } summary { cursor:pointer; color:#ebd795; }
   #finished { background:#234d37; border:2px solid #e8d58e; }
   [hidden] { display:none !important; }
-  @media(max-width:600px) { body { padding:8px; } .panel { padding:10px; } .tile { width:41px; min-width:41px; } }
+  @media(max-width:600px) {
+    body { padding:8px; } .panel { padding:10px; }
+    #table { height:440px; grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(0,1.1fr) minmax(0,1fr); }
+    #table.has-drafts { grid-template-rows:minmax(0,1fr) minmax(0,1fr) minmax(70px,.55fr); }
+    #rack { height:180px; }
+  }
 </style>
 </head>
 <body>
@@ -92,7 +128,7 @@
   <!-- The clock starts only after the player deliberately starts a game. -->
   <section id="setup" class="panel">
     <h2>Ready to play?</h2>
-    <p>Click tiles to select them, then choose <b>New set</b> or <b>Add selected here</b>.
+    <p>Click tiles to select them, then choose <b>New set</b> or <b>+</b> beside a set.
        Your first play must total at least <b>30</b>. After opening, you can rearrange the table.</p>
     <div class="tools">
       <label for="timing">Turn limit:</label>
@@ -112,7 +148,20 @@
     <section class="panel">
       <h2>Shared table</h2>
       <p id="tableLegend" class="muted" hidden>BOT = opponent's new tile · MOVED = rearranged tile</p>
-      <div id="table"></div>
+      <div id="table">
+        <section id="runsZone" class="board-zone" aria-label="Runs">
+          <h3>Runs <span id="runsCount"></span></h3>
+          <div class="fit-viewport"><div id="runsGrid" class="fit-content meld-grid"></div></div>
+        </section>
+        <section id="groupsZone" class="board-zone" aria-label="Groups">
+          <h3>Groups <span id="groupsCount"></span></h3>
+          <div class="fit-viewport"><div id="groupsGrid" class="fit-content groups-grid"></div></div>
+        </section>
+        <section id="draftsZone" class="board-zone" aria-label="Sets in progress" hidden>
+          <h3>In progress <span id="draftsCount"></span></h3>
+          <div class="fit-viewport"><div id="draftsGrid" class="fit-content meld-grid"></div></div>
+        </section>
+      </div>
     </section>
     <section class="panel">
       <div class="top"><h2 id="rackTitle">Your rack</h2><span id="opening" class="muted"></span></div>
@@ -122,7 +171,8 @@
         <button id="clear" class="small">Clear selection</button>
         <button id="hint" class="small">Suggest move</button>
       </div>
-      <div id="rack" class="tiles"></div><div id="selected"></div>
+      <div id="rack" class="fit-viewport"><div id="rackTiles" class="fit-content"></div></div>
+      <div id="selected"></div>
       <div class="tools">
         <button id="newSet">New set from selected</button>
         <button id="return">Return selected to rack</button>
@@ -148,7 +198,7 @@
       <p><b>Opening:</b> play one or more new sets worth at least 30 points, entirely from your rack.
         Table manipulation becomes available on your following turns.</p>
       <p><b>Click to move:</b> click tiles to select or deselect them. Choose New set, or click
-        Add selected here beside a table set. You can temporarily leave an invalid set while rearranging;
+        + beside a table set. You can temporarily leave an invalid set while rearranging;
         everything must be valid when you end your turn.</p>
       <p><b>Rearranging:</b> after opening, select tiles from existing sets and move them into other sets.
         You may split runs or rebuild groups. Every old table tile must remain on the table,
@@ -165,6 +215,11 @@
         The computer thinks for 4–8 seconds, then shows its play in steps. Your clock starts after
         its move finishes. NEW marks your latest draw, BOT marks tiles the computer added, and MOVED
         marks table tiles it rearranged. Highlights remain during your next turn, including after sorting.</p>
+      <p><b>Table layout:</b> runs and groups have their own areas. Every group uses the same columns:
+        Black, Blue, Orange, Red. A missing color leaves an empty slot; a joker occupies the color
+        it represents. Unfinished sets appear under In progress. The table and your rack automatically
+        shrink their tile grids to keep every tile visible in the same space. Use a set's + button
+        to add selected tiles, or its dropdown to choose a joker interpretation.</p>
       <p><b>End and scoring:</b> emptying your rack wins the game. The other rack's numbers are added up,
         with each remaining joker worth 30; the winner gains that total and the loser loses it.
         If the pool is empty and both players pass, continue if a move remains. Otherwise use
@@ -585,6 +640,89 @@ const Rummy = (() => {
     return button;
   }
 
+  // Pack at the largest scale that fits BOTH dimensions. Changing the logical
+  // width permits more grid columns as tiles shrink, without scrolling or hiding tiles.
+  function fitTileArea(content) {
+    const viewport=content.parentElement, style=getComputedStyle(viewport);
+    const left=parseFloat(style.paddingLeft), top=parseFloat(style.paddingTop);
+    const width=viewport.clientWidth-left-parseFloat(style.paddingRight);
+    const height=viewport.clientHeight-top-parseFloat(style.paddingBottom);
+    if(width<=0||height<=0) return;
+    content.style.left=left+'px'; content.style.top=top+'px';
+    if(content.id==='groupsGrid'&&content.querySelector('.group-row')) {
+      // Add whole four-color columns of groups as the board fills. Each stack
+      // repeats the same header, and all its rows retain all four color slots.
+      const cards=[...content.querySelectorAll('.group-row')];
+      const heading=content.querySelector('.group-heading');
+      const cardWidth=Math.max(...cards.map(card=>card.offsetWidth),heading.offsetWidth);
+      const cardHeight=Math.max(...cards.map(card=>card.offsetHeight));
+      let best={scale:0,columns:1,width:0};
+      for(let columns=1;columns<=cards.length;columns++) {
+        const rows=Math.ceil(cards.length/columns);
+        const w=8+columns*cardWidth+(columns-1)*8;
+        const h=8+heading.offsetHeight+8+rows*cardHeight+(rows-1)*8;
+        const scale=Math.min(1,width/w,height/h);
+        if(scale>best.scale) best={scale,columns,width:w};
+      }
+      content.replaceChildren();
+      const rows=Math.ceil(cards.length/best.columns);
+      for(let column=0;column<best.columns;column++) {
+        const stack=document.createElement('div'); stack.className='group-stack';
+        stack.appendChild(heading.cloneNode(true));
+        cards.slice(column*rows,(column+1)*rows).forEach(card=>stack.appendChild(card));
+        content.appendChild(stack);
+      }
+      content.style.width=best.width+'px';
+      const scale=Math.min(best.scale,width/content.scrollWidth,height/content.scrollHeight);
+      content.style.transform='scale('+scale+')';
+      content.style.left=(left+(width-best.width*scale)/2)+'px';
+      return;
+    }
+    function fits(scale) {
+      content.style.width=Math.floor(width/scale)+'px';
+      return Math.ceil(content.scrollHeight*scale)<=height&&Math.ceil(content.scrollWidth*scale)<=width;
+    }
+    let scale=1;
+    if(!fits(1)) {
+      let low=0.001, high=1;
+      for(let i=0;i<14;i++) {
+        const mid=(low+high)/2;
+        if(fits(mid)) low=mid; else high=mid;
+      }
+      scale=low;
+    }
+    content.style.width=Math.floor(width/scale)+'px';
+    content.style.transform='scale('+scale+')';
+  }
+  function fitTileAreas() {
+    // On narrow screens, share the fixed table height according to the contents
+    // instead of leaving half the board empty while the other half gets tiny.
+    const table=$('table');
+    if(window.matchMedia('(max-width:600px)').matches) {
+      const zones=['runs','groups',...($('draftsZone').hidden?[]:['drafts'])];
+      const weights=zones.map(kind=>{
+        const content=$(kind+'Grid'), viewport=content.parentElement;
+        content.style.width=viewport.clientWidth+'px';
+        const cards=[...content.querySelectorAll('.meld')];
+        let naturalHeight=cards.length?content.scrollHeight:30;
+        if(kind==='groups'&&cards.length) naturalHeight=30+cards.reduce((sum,card)=>sum+card.offsetHeight+8,0);
+        return Math.max(1,naturalHeight+30-70);
+      });
+      const extra=Math.max(0,table.clientHeight-10*(zones.length-1)-70*zones.length);
+      const total=weights.reduce((a,b)=>a+b,0);
+      table.style.gridTemplateRows=weights.map(weight=>(70+extra*weight/total)+'px').join(' ');
+    } else table.style.gridTemplateRows='';
+    for(const id of ['runsGrid','groupsGrid','draftsGrid','rackTiles']) fitTileArea($(id));
+  }
+  let layoutFrame=0;
+  function scheduleTileLayout() {
+    cancelAnimationFrame(layoutFrame);
+    layoutFrame=requestAnimationFrame(fitTileAreas);
+  }
+  const layoutObserver=new ResizeObserver(scheduleTileLayout);
+  for(const id of ['runsGrid','groupsGrid','draftsGrid','rackTiles']) layoutObserver.observe($(id).parentElement);
+  window.addEventListener('resize',scheduleTileLayout);
+
   // Redraw the board from data; the click handlers stay on the parent containers.
   function render() {
     if (!game) return;
@@ -596,39 +734,78 @@ const Rummy = (() => {
     $('tableLegend').hidden=!opponentAdded.size&&!opponentMoved.size;
     $('rackTitle').textContent='Your rack · '+rack.length+' tiles';
     $('opening').textContent=game.opened[0]?'Opened — table rearrangement allowed':'Opening required: 30+ from your rack';
-    $('table').replaceChildren();
-    if (!table.length) {
-      const p=document.createElement('p'); p.className='muted';
-      p.textContent='The table is empty. Select a run or group from your rack, then click New set.';
-      $('table').appendChild(p);
-    }
+    const groupColors=[2,1,3,0]; // Black, Blue, Orange, Red; never collapse missing slots.
+    const counts={runs:0,groups:0,drafts:0};
+    for(const kind of Object.keys(counts)) $(kind+'Grid').replaceChildren();
+    const heading=document.createElement('div'); heading.className='group-heading';
+    const setHeading=document.createElement('span'); setHeading.textContent='Set'; heading.appendChild(setHeading);
+    const colorHeadings=document.createElement('div'); colorHeadings.className='group-colors';
+    groupColors.forEach(color=>{
+      const label=document.createElement('span'); label.textContent=E.colors[color]; colorHeadings.appendChild(label);
+    });
+    heading.appendChild(colorHeadings); $('groupsGrid').appendChild(heading);
     table.forEach((row,index)=>{
-      const options=E.forms(row.tiles), info=E.form(row);
-      const card=document.createElement('div'); card.className='meld'+(info||aiPreview?'':' invalid');
+      const options=E.forms(row.tiles), info=E.form(row), displayInfo=row.previewForm||info;
+      const kind=displayInfo?(displayInfo.key.startsWith('g')?'groups':'runs'):'drafts';
+      counts[kind]++;
+      const card=document.createElement('div');
+      card.className='meld'+(kind==='groups'?' group-row':'')+(info||aiPreview?'':' invalid');
+      card.dataset.setId=row.id; card.dataset.kind=kind;
       const head=document.createElement('div'); head.className='rowhead';
-      const title=document.createElement('span');
-      title.textContent='Set '+(index+1)+' · '+(info?info.label+' · '+info.points+' points':aiPreview?'Opponent is arranging…':'Incomplete / invalid');
+      const title=document.createElement('span'); title.className='set-label';
+      const description=displayInfo?displayInfo.label+' · '+displayInfo.points+' points'
+        :aiPreview?'Opponent is arranging…':'Incomplete / invalid';
+      title.textContent='#'+(index+1)+(kind==='groups'?'':' · '+description);
+      title.title='Set '+(index+1)+' · '+description;
       head.appendChild(title);
       const locked=!game.opened[0]&&original&&original.table.some(old=>old.id===row.id);
+      const actions=document.createElement('div'); actions.className='set-actions';
       if (options.length>1) {
         const select=document.createElement('select'); select.dataset.choice=row.id;
         select.setAttribute('aria-label','Joker interpretation for set '+(index+1));
+        select.title=info.label+' — choose joker interpretation';
         options.forEach(option=>{
           const item=document.createElement('option'); item.value=option.key;
           item.textContent=option.label+' ('+option.points+')'; item.selected=option.key===info.key;
           select.appendChild(item);
         });
-        select.disabled=!canPlay||locked; head.appendChild(select);
+        select.disabled=!canPlay||locked; actions.appendChild(select);
       }
       const add=document.createElement('button'); add.className='small'; add.dataset.add=row.id;
-      add.textContent='Add selected here'; add.disabled=!canPlay||locked||!selection.size;
-      head.appendChild(add); card.appendChild(head);
+      add.textContent='+'; add.title='Add selected tiles to set '+(index+1);
+      add.setAttribute('aria-label',add.title); add.disabled=!canPlay||locked||!selection.size;
+      actions.appendChild(add); head.appendChild(actions); card.appendChild(head);
       const line=document.createElement('div'); line.className='tiles';
-      (info?info.ordered:row.tiles).forEach(id=>line.appendChild(tileButton(id,info?info.faces[id]:null,!canPlay||locked,true)));
-      card.appendChild(line); $('table').appendChild(card);
+      const ordered=(displayInfo?displayInfo.ordered:row.tiles).filter(id=>row.tiles.includes(id));
+      if(kind==='groups') {
+        groupColors.forEach(color=>{
+          const id=ordered.find(id=>displayInfo.faces[id].color===color);
+          let cell;
+          if(id!==undefined) cell=tileButton(id,displayInfo.faces[id],!canPlay||locked,true);
+          else {
+            cell=document.createElement('span'); cell.className='empty-slot'; cell.textContent='—';
+            cell.setAttribute('aria-label','No '+E.colors[color]+' tile in set '+(index+1));
+          }
+          cell.dataset.columnColor=String(color); line.appendChild(cell);
+        });
+      } else {
+        ordered.forEach(id=>line.appendChild(tileButton(id,displayInfo?displayInfo.faces[id]:null,!canPlay||locked,true)));
+      }
+      card.appendChild(line); $(kind+'Grid').appendChild(card);
     });
-    $('rack').replaceChildren();
-    rack.forEach(id=>$('rack').appendChild(tileButton(id,null,!canPlay)));
+    for(const [kind,count] of Object.entries(counts)) {
+      $(kind+'Count').textContent=count?'· '+count+' set'+(count===1?'':'s'):'';
+      if(!count&&kind!=='drafts') {
+        const empty=document.createElement('p'); empty.className='empty-zone';
+        empty.textContent=kind==='runs'?'Consecutive tiles of one color go here.':'Matching numbers go here.';
+        $(kind+'Grid').appendChild(empty);
+      }
+    }
+    $('draftsZone').hidden=!counts.drafts;
+    $('table').classList.toggle('has-drafts',Boolean(counts.drafts));
+    $('rackTiles').replaceChildren();
+    rack.forEach(id=>$('rackTiles').appendChild(tileButton(id,null,!canPlay)));
+    fitTileAreas();
     $('selected').textContent=selection.size?selection.size+' selected — choose a destination.':'Click tiles to select them.';
     for (const id of ['sortColor','sortNumber','clear','hint','newSet','return','undo','reset','end','draw']) {
       $(id).disabled=!canPlay;
@@ -739,7 +916,7 @@ const Rummy = (() => {
       if(game.table.some(old=>E.same(old.tiles,row.tiles)&&E.form(old).key===E.form(row).key)) return;
       const oldIds=row.tiles.filter(id=>!rackIds.has(id));
       const added=E.form(row).ordered.filter(id=>rackIds.has(id));
-      const target={id:'preview'+index,tiles:[],choice:row.choice};
+      const target={id:'preview'+index,tiles:[],choice:row.choice,previewForm:E.form(row)};
       if(oldIds.length) steps.push({target,ids:oldIds,kind:'arrange'});
       added.forEach(id=>steps.push({target,ids:[id],kind:'add'}));
     });
@@ -764,9 +941,6 @@ const Rummy = (() => {
       }
       message('Watch the opponent’s move. Your timer starts when the move finishes.');
       render();
-      // Follow the active set inside the table without moving the host page.
-      const last=$('table').lastElementChild;
-      if(last) $('table').scrollTop=last.offsetTop-$('table').offsetTop;
       scheduleComputer(reveal,interval);
     }
     reveal();

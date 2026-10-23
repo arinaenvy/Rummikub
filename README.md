@@ -10,6 +10,13 @@ your 60-second turn begins. Your latest drawn tiles carry a **NEW** badge, while
 the opponent's additions show **BOT** and rearranged table tiles show **MOVED**.
 These highlights remain throughout your next turn, including after sorting.
 
+The table and rack use fixed-size areas that automatically fit all their tiles.
+Runs and groups are separate. Groups keep the color order **Black, Blue, Orange,
+Red**, with a blank slot for each missing color and jokers in the column they
+represent. Crowded tables add group stacks and shrink the tiles as needed;
+each stack repeats the same aligned color columns. Unfinished sets have an
+**In progress** area. Use the **+** beside a set to add selected tiles.
+
 ## Run locally
 
 Use Python 3.12 (the tested version). From the repository folder:

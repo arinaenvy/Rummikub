@@ -280,6 +280,120 @@ class BrowserSmokeTest(unittest.TestCase):
         expect(g.locator('#table .opponent-added[data-tile="13"]')).to_have_count(1)
         expect(g.locator("#table .tile")).to_have_count(10)
 
+    def prepare_grid_layout(self, human=None):
+        self.load()
+        self.frame = self.page.frames[1]
+        human = human or [66, 40, 14, 68, 42, 94, 26, 28, 30, 70, 44, 104, 92, 2]
+        self.frame.evaluate("""human => {
+            Rummy.shuffle=ids=>ids.length===104
+              ?[24,0,...ids.filter(id=>id!==24&&id!==0)]
+              :[...human,...ids.filter(id=>!human.includes(id))];
+        }""", human)
+        self.game.locator("#timing").select_option("0")
+        self.game.locator("#start").click()
+
+    def stage_set(self, ids):
+        for tile in ids:
+            self.game.locator(f'#rack [data-tile="{tile}"]').click()
+        self.game.locator("#newSet").click()
+
+    def assert_tiles_fit(self):
+        self.frame.wait_for_function("""() => {
+            const areas=['runsGrid','groupsGrid','draftsGrid','rackTiles'];
+            return areas.every(id=>{
+                const content=document.getElementById(id), parent=content.parentElement;
+                if(!parent.getClientRects().length) return true;
+                const box=parent.getBoundingClientRect();
+                return [...content.querySelectorAll('.tile,.empty-slot,[data-add],select')].every(el=>{
+                    const r=el.getBoundingClientRect();
+                    return r.width>0 && r.height>0 && r.left>=box.left-1 && r.top>=box.top-1 &&
+                        r.right<=box.right+1 && r.bottom<=box.bottom+1;
+                });
+            });
+        }""")
+
+    def test_group_color_slots_and_table_controls(self):
+        self.prepare_grid_layout()
+        g = self.game
+        for ids in [[66, 40, 14], [68, 42, 94], [26, 28, 30], [70, 44, 104]]:
+            self.stage_set(ids)
+        expect(g.locator("#groupsGrid .meld")).to_have_count(3)
+        expect(g.locator("#runsGrid .meld")).to_have_count(1)
+        expect(g.locator("#draftsZone")).to_be_hidden()
+        for width in [1280, 390]:
+            self.page.set_viewport_size({"width": width, "height": 900})
+            self.assert_tiles_fit()
+            # Every group has four explicit color slots, including jokers and gaps.
+            for row in g.locator("#groupsGrid .meld").all():
+                self.assertEqual(row.locator("[data-column-color]").evaluate_all(
+                    "els=>els.map(el=>el.dataset.columnColor)"), ["2", "1", "3", "0"])
+            expect(g.locator('#groupsGrid [data-set-id="set1"] .empty-slot[data-column-color="3"]')).to_have_count(1)
+            expect(g.locator('#groupsGrid [data-set-id="set2"] .empty-slot[data-column-color="0"]')).to_have_count(1)
+            expect(g.locator('#groupsGrid [data-tile="104"]')).to_have_attribute("data-column-color", "0")
+            self.assertTrue(self.frame.evaluate("""() =>
+                [...document.querySelectorAll('.group-stack')].every(stack=>{
+                    const rows=[...stack.querySelectorAll('.group-row')];
+                    return [0,1,2,3].every(color=>{
+                        const cells=rows.map(row=>row.querySelector(`[data-column-color="${color}"]`));
+                        return cells.every(cell=>Math.abs(cell.getBoundingClientRect().left-
+                            cells[0].getBoundingClientRect().left)<1);
+                    });
+                })"""))
+        g.locator('#rack [data-tile="92"]').click()
+        g.locator('[data-add="set1"]').click()
+        expect(g.locator('#groupsGrid [data-set-id="set1"] .empty-slot')).to_have_count(0)
+        expect(g.locator('#groupsGrid [data-tile="92"]')).to_have_attribute("data-column-color", "3")
+        g.locator("#undo").click()
+        expect(g.locator('#rack [data-tile="92"]')).to_have_count(1)
+        expect(g.locator('#groupsGrid [data-set-id="set1"] .empty-slot')).to_have_count(1)
+
+    def test_joker_choice_reclassifies_sets_and_incomplete_drafts_stay_visible(self):
+        self.prepare_grid_layout([42, 104, 105, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20])
+        g = self.game
+        self.stage_set([42, 104, 105])
+        expect(g.locator("#runsGrid .meld")).to_have_count(1)
+        g.locator('select[data-choice="set1"]').select_option("g9")
+        expect(g.locator("#groupsGrid .meld")).to_have_count(1)
+        expect(g.locator("#runsGrid .meld")).to_have_count(0)
+        expect(g.locator('#groupsGrid .empty-slot[data-column-color="3"]')).to_have_count(1)
+        initial_height = g.locator("#table").bounding_box()["height"]
+        g.locator('#table [data-tile="42"]').click()
+        g.locator("#return").click()
+        expect(g.locator("#draftsGrid .tile")).to_have_count(2)
+        expect(g.locator("#draftsZone")).to_be_visible()
+        self.assertEqual(g.locator("#table").bounding_box()["height"], initial_height)
+        self.assert_tiles_fit()
+        g.locator("#undo").click()
+        expect(g.locator("#groupsGrid .tile")).to_have_count(3)
+        expect(g.locator("#draftsZone")).to_be_hidden()
+
+    def test_dense_grids_fit_on_desktop_and_mobile(self):
+        self.prepare_grid_layout()
+        for ids in [[66, 40, 14], [26, 28, 30]]:
+            self.stage_set(ids)
+        # Stress the real rendered card/tile geometry with a full-deck-sized view.
+        # These DOM-only fixtures do not change game state or bypass turn validation.
+        self.frame.evaluate("""() => {
+            const groups=document.getElementById('groupsGrid');
+            const group=groups.querySelector('.meld');
+            for(let i=1;i<34;i++) groups.appendChild(group.cloneNode(true));
+            const rack=document.getElementById('rackTiles'), tile=rack.querySelector('.tile');
+            while(rack.children.length<106) rack.appendChild(tile.cloneNode(true));
+        }""")
+        for width in [1280, 390, 768]:
+            self.page.set_viewport_size({"width": width, "height": 900})
+            self.frame.evaluate("window.dispatchEvent(new Event('resize'))")
+            self.assert_tiles_fit()
+            expect(self.game.locator("#table .tile")).to_have_count(105)
+            expect(self.game.locator("#rack .tile")).to_have_count(106)
+            self.assertEqual(self.game.locator("#table").bounding_box()["height"], 440 if width == 390 else 380)
+            self.assertTrue(self.frame.evaluate("""() => {
+                const scale=id=>new DOMMatrix(getComputedStyle(document.getElementById(id)).transform).a;
+                return scale('groupsGrid')<1 && scale('rackTiles')<1 &&
+                    document.getElementById('table').scrollTop===0 &&
+                    document.documentElement.scrollWidth<=window.innerWidth;
+            }"""))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
