@@ -9,7 +9,7 @@
   * { box-sizing:border-box; }
   body { margin:0; padding:18px; background:#0c2822; color:#f3f3e7;
          font:15px/1.45 Arial,sans-serif; }
-  main { max-width:1100px; margin:auto; }
+  main { max-width:1100px; margin:auto; padding-bottom:120px; }
   h1 { margin:0; font-size:28px; letter-spacing:-1px; }
   h2 { margin:0 0 10px; font-size:17px; }
   p { margin:8px 0; }
@@ -55,6 +55,23 @@
   .tile.black { color:#242424; } .tile.orange { color:#ac5000; }
   .tile.joker { color:#7352a7; }
   .tile.selected { outline:3px solid #ffdb65; outline-offset:1px; transform:translateY(-2px); }
+  .tile.new-draw { box-shadow:0 0 0 3px #ffdb65; }
+  .tile.opponent-added { box-shadow:0 0 0 3px #79e8cf; }
+  .tile.opponent-moved { box-shadow:0 0 0 2px #a5c9ff; }
+  .tile .change-tag { position:absolute; top:-11px; right:-4px; padding:2px 4px;
+    border-radius:4px; background:#ffdb65; color:#152b20; font:bold 9px/1.2 Arial,sans-serif; }
+  .tile.opponent-added .change-tag { background:#79e8cf; }
+  .tile.opponent-moved .change-tag { background:#a5c9ff; }
+  .tiles { padding-top:12px; }
+  #turnDock { position:fixed; right:12px; bottom:12px; width:min(360px,calc(100% - 24px));
+    z-index:20; pointer-events:none; border:1px solid #6c9b85; border-radius:12px;
+    background:#102d26; box-shadow:0 5px 24px #0006; padding:10px 14px; }
+  #dockTimer { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+  #dockClock { font-size:22px; font-weight:bold; font-variant-numeric:tabular-nums; color:#ffdf83; }
+  #turnDock.urgent { border-color:#ff9d87; background:#592e29; }
+  #turnDock.urgent #dockClock { color:#ffc4b5; }
+  #turnNotice { margin-top:5px; font-size:13px; color:#d3e5dc; }
+  #tableLegend { margin:0 0 10px; }
   .tile:disabled { opacity:1; cursor:default; } /* Locked tiles remain readable. */
   #rack { padding:12px; border-radius:10px; background:#0e2c22; margin:10px 0; }
   #selected { font-size:13px; color:#ffdf83; min-height:20px; margin:8px 0; }
@@ -93,7 +110,9 @@
     <div id="message" role="status" aria-live="polite"></div>
     <section id="finished" class="panel" hidden></section>
     <section class="panel">
-      <h2>Shared table</h2><div id="table"></div>
+      <h2>Shared table</h2>
+      <p id="tableLegend" class="muted" hidden>BOT = opponent's new tile · MOVED = rearranged tile</p>
+      <div id="table"></div>
     </section>
     <section class="panel">
       <div class="top"><h2 id="rackTitle">Your rack</h2><span id="opening" class="muted"></span></div>
@@ -142,6 +161,10 @@
       <p><b>Clock:</b> the default is 60 seconds. Timeout restores the start-of-turn layout and draws one
         tile. An unfinished invalid arrangement at timeout instead draws three penalty tiles.
         Practice mode removes the time limit. The clock continues if you switch browser tabs.</p>
+      <p><b>Following the action:</b> the floating panel keeps your timer and the latest action in view.
+        The computer thinks for 4–8 seconds, then shows its play in steps. Your clock starts after
+        its move finishes. NEW marks your latest draw, BOT marks tiles the computer added, and MOVED
+        marks table tiles it rearranged. Highlights remain during your next turn, including after sorting.</p>
       <p><b>End and scoring:</b> emptying your rack wins the game. The other rack's numbers are added up,
         with each remaining joker worth 30; the winner gains that total and the loser loses it.
         If the pool is empty and both players pass, continue if a move remains. Otherwise use
@@ -151,6 +174,10 @@
     </div>
   </details>
 </main>
+<aside id="turnDock" aria-label="Turn timer and latest action" hidden>
+  <div id="dockTimer"><span id="dockTurn"></span><span id="dockClock" role="timer" aria-live="off"></span></div>
+  <div id="turnNotice" role="status" aria-live="polite" aria-atomic="true"></div>
+</aside>
 <!-- All game code is inserted here; no script is downloaded from the internet. -->
 <script>
 // This engine contains the rules. It never reads the screen or the other rack.
@@ -457,6 +484,50 @@ const Rummy = (() => {
   let rowId = 0, epoch = 0, aiJob = null; // Unique rows and cancellation of old jobs.
   let deadline = 0, busy = false; // Current turn's clock and temporary search lock.
   let totals = [0,0], wins = [0,0], games = 0; // Session scores across fresh games.
+  let aiPreview = null, aiPlayed = 0; // Animation never mutates the committed position.
+  let recentlyDrawn = new Set(), opponentAdded = new Set(), opponentMoved = new Set();
+
+  const tileName = id => E.tiles[id].type===52 ? 'Joker' : E.colors[E.tiles[id].color]+' '+E.tiles[id].number;
+  function notify(text) { $('turnNotice').textContent=text; positionDock(); }
+
+  // Streamlit scrolls the host page, not this tall iframe. Position the dock in
+  // the visible part of the frame without changing anything in the host DOM.
+  function positionDock() {
+    const dock=$('turnDock');
+    let visibleBottom=window.innerHeight, visibleTop=0;
+    try {
+      if (window.frameElement) {
+        const bounds=window.frameElement.getBoundingClientRect();
+        const viewport=window.parent.visualViewport;
+        const top=viewport?viewport.offsetTop:0;
+        const bottom=top+(viewport?viewport.height:window.parent.innerHeight);
+        visibleBottom=Math.min(window.innerHeight,bottom-bounds.top);
+        visibleTop=Math.max(0,top-bounds.top);
+      }
+    } catch (_) { /* Standalone/cross-origin hosts use their own frame viewport. */ }
+    dock.style.bottom=Math.max(12,window.innerHeight-visibleBottom+12)+'px';
+    dock.style.visibility=visibleBottom-visibleTop>dock.offsetHeight+24?'visible':'hidden';
+  }
+  window.addEventListener('resize',positionDock);
+  try {
+    window.parent.addEventListener('scroll',positionDock,true);
+    window.parent.addEventListener('resize',positionDock);
+    window.parent.visualViewport?.addEventListener('resize',positionDock);
+    window.parent.visualViewport?.addEventListener('scroll',positionDock);
+    window.addEventListener('pagehide',()=>{
+      window.parent.removeEventListener('scroll',positionDock,true);
+      window.parent.removeEventListener('resize',positionDock);
+      window.parent.visualViewport?.removeEventListener('resize',positionDock);
+      window.parent.visualViewport?.removeEventListener('scroll',positionDock);
+    },{once:true});
+  } catch (_) { /* Parent access is optional for standalone embedding. */ }
+
+  function scheduleComputer(action, delay) {
+    const token=epoch;
+    aiJob=setTimeout(()=>{
+      if(token===epoch&&playing()&&game.turn===1) action();
+    },delay);
+  }
 
   // Set text safely; messages never interpret player text as HTML.
   function message(text, error = false) {
@@ -485,7 +556,7 @@ const Rummy = (() => {
   }
 
   // Build a clickable tile. Real IDs distinguish the two copies of a number.
-  function tileButton(id, face = null, disabled = false) {
+  function tileButton(id, face = null, disabled = false, onTable = false) {
     const tile=E.tiles[id], joker=tile.type===52;
     const button=document.createElement('button');
     button.type='button'; button.className='tile '+(joker?'joker':classNames[tile.color]);
@@ -493,7 +564,16 @@ const Rummy = (() => {
     button.disabled=disabled; button.dataset.tile=String(id);
     button.setAttribute('aria-pressed',String(selection.has(id)));
     const label=joker ? 'Joker' : E.colors[tile.color]+' '+tile.number;
-    button.setAttribute('aria-label',label+(joker&&face?' representing '+E.colors[face.color]+' '+face.number:''));
+    const change=!onTable&&recentlyDrawn.has(id)?['new-draw','NEW','newly drawn']
+      :onTable&&opponentAdded.has(id)?['opponent-added','BOT','played by opponent']
+      :onTable&&opponentMoved.has(id)?['opponent-moved','MOVED','rearranged by opponent']:null;
+    button.setAttribute('aria-label',label+(joker&&face?' representing '+E.colors[face.color]+' '+face.number:'')
+      +(change?', '+change[2]:''));
+    if(change) {
+      button.classList.add(change[0]);
+      const tag=document.createElement('span'); tag.className='change-tag';
+      tag.textContent=change[1]; button.appendChild(tag);
+    }
     const number=document.createElement('span'); number.className='number';
     number.textContent=joker?'★':String(tile.number); button.appendChild(number);
     const name=document.createElement('span'); name.className='name';
@@ -508,11 +588,12 @@ const Rummy = (() => {
   // Redraw the board from data; the click handlers stay on the parent containers.
   function render() {
     if (!game) return;
-    const canPlay=human(), table=game.turn===0&&!game.over?draft.table:game.table;
+    const canPlay=human(), table=aiPreview||(game.turn===0&&!game.over?draft.table:game.table);
     const rack=game.turn===0&&!game.over?draft.rack:game.racks[0];
     $('turn').textContent=game.over?'Game finished':names[game.turn]+' — turn '+game.turnNumber;
     $('pool').textContent='Pool: '+game.pool.length;
-    $('opponent').textContent='Computer: '+game.racks[1].length+' tiles · '+(game.opened[1]?'opened':'needs 30');
+    $('opponent').textContent='Computer: '+(game.racks[1].length-aiPlayed)+' tiles · '+(game.opened[1]?'opened':'needs 30');
+    $('tableLegend').hidden=!opponentAdded.size&&!opponentMoved.size;
     $('rackTitle').textContent='Your rack · '+rack.length+' tiles';
     $('opening').textContent=game.opened[0]?'Opened — table rearrangement allowed':'Opening required: 30+ from your rack';
     $('table').replaceChildren();
@@ -523,10 +604,10 @@ const Rummy = (() => {
     }
     table.forEach((row,index)=>{
       const options=E.forms(row.tiles), info=E.form(row);
-      const card=document.createElement('div'); card.className='meld'+(info?'':' invalid');
+      const card=document.createElement('div'); card.className='meld'+(info||aiPreview?'':' invalid');
       const head=document.createElement('div'); head.className='rowhead';
       const title=document.createElement('span');
-      title.textContent='Set '+(index+1)+' · '+(info?info.label+' · '+info.points+' points':'Incomplete / invalid');
+      title.textContent='Set '+(index+1)+' · '+(info?info.label+' · '+info.points+' points':aiPreview?'Opponent is arranging…':'Incomplete / invalid');
       head.appendChild(title);
       const locked=!game.opened[0]&&original&&original.table.some(old=>old.id===row.id);
       if (options.length>1) {
@@ -543,7 +624,7 @@ const Rummy = (() => {
       add.textContent='Add selected here'; add.disabled=!canPlay||locked||!selection.size;
       head.appendChild(add); card.appendChild(head);
       const line=document.createElement('div'); line.className='tiles';
-      (info?info.ordered:row.tiles).forEach(id=>line.appendChild(tileButton(id,info?info.faces[id]:null,!canPlay||locked)));
+      (info?info.ordered:row.tiles).forEach(id=>line.appendChild(tileButton(id,info?info.faces[id]:null,!canPlay||locked,true)));
       card.appendChild(line); $('table').appendChild(card);
     });
     $('rack').replaceChildren();
@@ -563,6 +644,7 @@ const Rummy = (() => {
 
   // A whole-turn snapshot enables rollback after invalid moves or a timeout.
   function beginTurn() {
+    aiPreview=null; aiPlayed=0;
     original={table:E.clone(game.table),rack:[...game.racks[game.turn]]};
     draft=E.clone(original); selection.clear(); undo=[]; busy=false;
     deadline=game.seconds?Date.now()+game.seconds*1000:0;
@@ -572,9 +654,9 @@ const Rummy = (() => {
         :'Your turn. Build sets, then click End turn; or draw one tile.');
       sortRack();
     } else {
+      opponentAdded.clear(); opponentMoved.clear();
       message('The computer is considering its move…'); render();
-      const token=epoch;
-      aiJob=setTimeout(()=>{if(token===epoch&&playing()&&game.turn===1) computerTurn();},450);
+      scheduleComputer(computerTurn,4000+Math.floor(Math.random()*4001));
     }
   }
   function nextTurn() {
@@ -616,10 +698,14 @@ const Rummy = (() => {
     const check=E.audit(original,candidate,game.opened[game.turn]);
     if (!check.ok) { message(check.reason,true); return false; }
     const who=game.turn, opening=!game.opened[who];
+    if(who===0) recentlyDrawn.clear();
+    aiPreview=null; aiPlayed=0;
     game.table=candidate.table.map(row=>({...freshRow(row.tiles),choice:E.form(row).key}));
     game.racks[who]=[...candidate.rack]; game.opened[who]=true; game.passes=0;
     log(names[who]+' played '+check.played+' tile'+(check.played===1?'':'s')+
       (opening?' and opened with '+check.openingPoints+' points.':'.'));
+    notify((who===0?'You':'Opponent')+' played '+check.played+' tile'+(check.played===1?'':'s')+
+      (opening?' and opened with '+check.openingPoints+' points.':'.')+(who===1?' Your turn.':''));
     if (!game.racks[who].length) finish(who,false);
     else nextTurn();
     return true;
@@ -628,9 +714,15 @@ const Rummy = (() => {
   // Drawing always uses the committed rack, automatically undoing draft experiments.
   function drawAndEnd(count=1, reason='') {
     const who=game.turn, drawn=Math.min(count,game.pool.length);
-    for (let i=0;i<drawn;i++) game.racks[who].push(game.pool.pop());
+    const drawnIds=[];
+    for (let i=0;i<drawn;i++) { const id=game.pool.pop(); game.racks[who].push(id); drawnIds.push(id); }
+    if(who===0) recentlyDrawn=new Set(drawnIds);
     log(names[who]+(drawn?' drew '+drawn+' tile'+(drawn===1?'':'s'):' passed; the pool is empty')+
       (reason?' — '+reason:'.'));
+    notify(who===0
+      ?(drawn?'You drew '+drawnIds.map(tileName).join(', ')+'. Look for NEW.':'You passed; the pool is empty.')
+        +(reason?' '+reason+'.':'')
+      :(drawn?'Opponent drew a tile. Your turn.':'Opponent passed; the pool is empty. Your turn.'));
     game.passes=drawn?0:game.passes+1;
     nextTurn();
   }
@@ -638,13 +730,51 @@ const Rummy = (() => {
   // The computer sees the public table plus its own rack, never the human's rack.
   function computerTurn() {
     const plan=E.solve(game.racks[1],game.table,game.opened[1]);
-    if (plan&&commit(plan)) return;
-    drawAndEnd(); // Choosing to draw is legal even if a difficult move was missed.
+    if (!plan||!E.audit(original,plan,game.opened[1]).ok) { drawAndEnd(); return; }
+
+    // Reveal changed sets and new rack tiles in order, preserving physical IDs.
+    // Only the audited final plan is committed; intermediate layouts are visual.
+    const rackIds=new Set(game.racks[1]), steps=[];
+    plan.table.forEach((row,index)=>{
+      if(game.table.some(old=>E.same(old.tiles,row.tiles)&&E.form(old).key===E.form(row).key)) return;
+      const oldIds=row.tiles.filter(id=>!rackIds.has(id));
+      const added=E.form(row).ordered.filter(id=>rackIds.has(id));
+      const target={id:'preview'+index,tiles:[],choice:row.choice};
+      if(oldIds.length) steps.push({target,ids:oldIds,kind:'arrange'});
+      added.forEach(id=>steps.push({target,ids:[id],kind:'add'}));
+    });
+    aiPreview=E.clone(game.table);
+    const interval=Math.min(850,18000/Math.max(1,steps.length));
+    let index=0;
+    function reveal() {
+      if(index===steps.length) { commit(plan); return; }
+      const step=steps[index++], moving=new Set(step.ids);
+      const unchanged=step.kind==='arrange'&&game.table.some(row=>E.same(row.tiles,step.ids));
+      aiPreview.forEach(row=>{ row.tiles=row.tiles.filter(id=>!moving.has(id)); });
+      aiPreview=aiPreview.filter(row=>row.tiles.length);
+      let target=aiPreview.find(row=>row.id===step.target.id);
+      if(!target) { target=E.clone(step.target); aiPreview.push(target); }
+      target.tiles.push(...step.ids);
+      if(step.kind==='add') {
+        step.ids.forEach(id=>opponentAdded.add(id)); aiPlayed+=step.ids.length;
+        notify('Opponent played '+tileName(step.ids[0])+' · '+aiPlayed+' of '+plan.played+' tiles.');
+      } else {
+        if(!unchanged) step.ids.forEach(id=>opponentMoved.add(id));
+        notify(unchanged?'Opponent is extending a set…':'Opponent is rearranging table tiles…');
+      }
+      message('Watch the opponent’s move. Your timer starts when the move finishes.');
+      render();
+      // Follow the active set inside the table without moving the host page.
+      const last=$('table').lastElementChild;
+      if(last) $('table').scrollTop=last.offsetTop-$('table').offsetTop;
+      scheduleComputer(reveal,interval);
+    }
+    reveal();
   }
 
   // Display a result and two-player zero-sum scoring.
   function finish(winner, blocked) {
-    clearTimeout(aiJob); game.over=true; busy=false; selection.clear();
+    clearTimeout(aiJob); game.over=true; busy=false; selection.clear(); aiPreview=null; aiPlayed=0;
     const remaining=game.racks.map(E.rackPoints);
     let award=winner===null?0:blocked?Math.abs(remaining[0]-remaining[1]):remaining[1-winner];
     const change=[0,0];
@@ -660,12 +790,13 @@ const Rummy = (() => {
     total.textContent='Session: '+games+' games · Points '+totals[0]+' / '+totals[1]+' · Wins '+wins[0]+' / '+wins[1];
     box.appendChild(total);
     log(result+' Score: '+change[0]+' / '+change[1]+'.');
-    message('Choose New game for another deal.'); render();
+    message('Choose New game for another deal.'); notify(result+' Choose New game to play again.'); render();
   }
 
   // Start-player draws are returned before the actual deal, as in the physical game.
   function startGame() {
     epoch++; clearTimeout(aiJob); rowId=0;
+    aiPreview=null; aiPlayed=0; recentlyDrawn.clear(); opponentAdded.clear(); opponentMoved.clear();
     const ids=E.tiles.map(t=>t.id); let a,b;
     do { [a,b]=E.shuffle(ids.filter(id=>E.tiles[id].type!==52)); }
     while(E.tiles[a].number===E.tiles[b].number); // Redraw ties.
@@ -674,17 +805,24 @@ const Rummy = (() => {
       turnNumber:1,seconds:Number($('timing').value),over:false,passes:0,log:[]};
     $('log').replaceChildren(); $('setup').hidden=true; $('game').hidden=false; $('finished').hidden=true;
     log('Starting draw: You '+E.tiles[a].number+', Computer '+E.tiles[b].number+'. '+names[game.turn]+' start.');
+    $('turnDock').hidden=false;
+    notify(game.turn===0?'You start. Build sets or draw a tile.':'Opponent starts. Take a moment to look at your rack.');
     beginTurn();
   }
 
   // The clock uses elapsed wall time, so changing tabs does not grant extra time.
   function tick() {
     if (!game) return;
-    if (game.over) { $('clock').textContent='Finished'; return; }
-    if (!game.seconds) { $('clock').textContent='Practice · untimed'; $('clock').className='badge'; return; }
     const left=Math.max(0,Math.ceil((deadline-Date.now())/1000));
-    $('clock').textContent=left+' seconds'; $('clock').className='badge'+(left<=10?' urgent':'');
-    if (left===0&&game.turn===0&&!busy) {
+    const urgent=!game.over&&game.turn===0&&game.seconds&&left<=10;
+    const clockText=game.over?'Finished':game.turn===1?(aiPreview?'Playing…':'Thinking…')
+      :game.seconds?left+' seconds':'Practice · untimed';
+    $('clock').textContent=clockText; $('clock').className='badge'+(urgent?' urgent':'');
+    $('dockTurn').textContent=game.over?'Game finished':game.turn===0?'Your turn':'Opponent’s turn';
+    $('dockClock').textContent=game.over?'Finished':game.turn===1?clockText:game.seconds?left+'s':'No timer';
+    $('turnDock').classList.toggle('urgent',Boolean(urgent));
+    positionDock();
+    if (!game.over&&game.seconds&&left===0&&game.turn===0&&!busy) {
       const altered=JSON.stringify(draft.table)!==JSON.stringify(original.table)||!E.same(draft.rack,original.rack);
       const unfinished=altered&&!E.audit(original,draft,game.opened[0]).ok;
       drawAndEnd(unfinished?3:1,unfinished?'unfinished arrangement at timeout':'time expired');

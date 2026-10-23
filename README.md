@@ -4,6 +4,12 @@ A browser tile game for one player against the computer, adapted from the suppli
 Colab game. Includes classic 60-second turns, untimed practice, jokers, a 30-point
 opening, table rearrangement, undo/reset, move suggestions, and session scoring.
 
+A floating panel keeps the timer and latest action visible while you scroll. The
+computer thinks for a random 4–8 seconds and reveals its moves in stages before
+your 60-second turn begins. Your latest drawn tiles carry a **NEW** badge, while
+the opponent's additions show **BOT** and rearranged table tiles show **MOVED**.
+These highlights remain throughout your next turn, including after sorting.
+
 ## Run locally
 
 Use Python 3.12 (the tested version). From the repository folder:
