@@ -5,8 +5,9 @@ Colab game. Includes classic 60-second turns, untimed practice, jokers, a 30-poi
 opening, table rearrangement, undo/reset, move suggestions, and session scoring.
 
 A floating panel keeps the timer and latest action visible while you scroll. The
-computer thinks for a random 4–8 seconds and reveals its moves in stages before
-your 60-second turn begins. Your latest drawn tiles carry a **NEW** badge, while
+computer thinks for a random 15–35 seconds and normally pauses 2–4 seconds between
+its moves before your full 60-second turn begins. Large plays use shorter pauses
+to fit within 24 seconds of animation. Your latest drawn tiles carry a **NEW** badge, while
 the opponent's additions show **BOT** and rearranged table tiles show **MOVED**.
 These highlights remain throughout your next turn, including after sorting.
 
@@ -16,6 +17,10 @@ Red**, with a blank slot for each missing color and jokers in the column they
 represent. Crowded tables add group stacks and shrink the tiles as needed;
 each stack repeats the same aligned color columns. Unfinished sets have an
 **In progress** area. Use the **+** beside a set to add selected tiles.
+The tiles have no set numbers or point headers. Adjacent runs of the same color
+join automatically, preserving joker meanings and leaving gaps and duplicate
+numbers separate. Opening plays are validated before joining the existing table;
+Undo restores the position before an edit and its automatic joins.
 
 ## Run locally
 

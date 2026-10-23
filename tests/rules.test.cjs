@@ -72,3 +72,55 @@ test('solver returns audited opening and extension moves', () => {
   assert.equal(extension.rack.length, 0);
   assert.equal(E.audit({ rack: extra, table: plan.table }, extension, true).ok, true);
 });
+
+test('run joining handles an out-of-order chain without changing the input or tile IDs', () => {
+  const table = [row('end', [8,9,10].map(n=>id(1,n))),
+    row('start', [1,2,3].map(n=>id(1,n))), row('middle', [4,5,6,7].map(n=>id(1,n)))];
+  const snapshot = JSON.stringify(table);
+  const merged = E.mergeRuns(table);
+  assert.equal(merged.length, 1);
+  assert.equal(E.form(merged[0]).key, 'r1:1:10');
+  assert.equal(JSON.stringify(table), snapshot);
+  assert.ok(E.same(E.flat(table), E.flat(merged)));
+  assert.equal(new Set(E.flat(merged)).size, 10);
+  assert.equal(JSON.stringify(E.mergeRuns(merged)), JSON.stringify(merged));
+});
+
+test('run joining keeps gaps, different colors, overlapping copies, groups, and drafts separate', () => {
+  const table = [row('a', [1,2,3].map(n=>id(0,n))),
+    row('gap', [5,6,7].map(n=>id(0,n))),
+    row('overlap', [1,2,3].map(n=>id(0,n,1))),
+    row('blue', [4,5,6].map(n=>id(1,n))),
+    row('group', [id(0,9),id(1,9),id(2,9)]), row('draft',[id(0,4)])];
+  assert.equal(E.mergeRuns(table).length, table.length);
+});
+
+test('a locked old run cannot contribute points toward the opening', () => {
+  const old = row('old',[1,2,3].map(n=>id(0,n)));
+  const rack = [4,5,6].map(n=>id(0,n));
+  const opening = [old,row('new',rack)];
+  const merged = E.mergeRuns(opening, ['old']);
+  assert.equal(merged.length, 2);
+  assert.equal(E.audit({rack,table:[old]}, {rack:[],table:merged}, false).ok, false);
+  assert.equal(E.mergeRuns(opening).length, 1);
+});
+
+test('a joker keeps its chosen face when touching runs join', () => {
+  const a = { ...row('a',[id(1,4),104,id(1,6)]), choice:'r1:4:3' };
+  const b = row('b',[7,8,9].map(n=>id(1,n)));
+  const merged = E.mergeRuns([a,b]);
+  assert.equal(merged.length, 1);
+  assert.equal(E.form(merged[0]).faces[104].number, 5);
+  assert.equal(E.form(merged[0]).key, 'r1:4:6');
+  const c = {...row('c',[id(0,1),105,id(0,3)]),choice:'r0:1:3'};
+  const d = {...row('d',[id(0,4),104,id(0,6)]),choice:'r0:4:3'};
+  // The engine orders jokers by ID; avoid a join that would swap the selected faces.
+  assert.equal(E.mergeRuns([c,d]).length, 2);
+});
+
+test('joining supports the full 1–13 run and never wraps 13 back to 1', () => {
+  const table = [row('a',[1,2,3].map(n=>id(2,n))),
+    row('b',[4,5,6,7].map(n=>id(2,n))), row('c',[8,9,10,11,12,13].map(n=>id(2,n)))];
+  assert.equal(E.form(E.mergeRuns(table)[0]).key, 'r2:1:13');
+  assert.equal(E.mergeRuns([table[0],row('end',[11,12,13].map(n=>id(2,n)))]).length, 2);
+});

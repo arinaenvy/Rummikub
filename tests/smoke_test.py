@@ -7,7 +7,7 @@ import unittest
 
 from playwright.sync_api import expect, sync_playwright
 
-expect.set_options(timeout=35_000)  # Includes the opponent's thinking and animation.
+expect.set_options(timeout=65_000)  # Includes the opponent's thinking and animation.
 
 
 class BrowserSmokeTest(unittest.TestCase):
@@ -45,11 +45,13 @@ class BrowserSmokeTest(unittest.TestCase):
         expect(self.game.locator("#start")).to_be_visible()
 
     def exercise_game(self, width, height):
+        self.page.clock.install()
         self.page.set_viewport_size({"width": width, "height": height})
         self.load()
         g = self.game
         g.locator("#timing").select_option("0")
         g.locator("#start").click()
+        self.wait_for_human()
         expect(g.locator("#draw")).to_be_enabled()
         expect(g.locator("#rack .tile")).to_have_count(14)
         expect(g.locator("#clock")).to_have_text("Practice · untimed")
@@ -70,6 +72,7 @@ class BrowserSmokeTest(unittest.TestCase):
         staged_count = g.locator("#rack .tile").count()
         self.assertLess(staged_count, 14)
         g.locator("#end").click()
+        self.wait_for_human()
         expect(g.locator("#draw")).to_be_enabled()
         expect(g.locator("#opening")).to_contain_text("Opened")
         expect(g.locator("#rack .tile")).to_have_count(staged_count)
@@ -77,6 +80,7 @@ class BrowserSmokeTest(unittest.TestCase):
         expect(g.locator("#log")).to_contain_text("Computer")
 
         g.locator("#draw").click()
+        self.wait_for_human()
         expect(g.locator("#draw")).to_be_enabled()
         expect(g.locator("#rack .tile")).to_have_count(staged_count + 1)
         expect(g.locator("#log")).to_contain_text("You drew 1 tile")
@@ -115,6 +119,13 @@ class BrowserSmokeTest(unittest.TestCase):
         expect(g.locator("#start")).to_be_visible()
         expect(g.locator("#game")).to_be_hidden()
 
+    def wait_for_human(self):
+        for _ in range(122):
+            if self.game.locator('#draw').is_enabled():
+                return
+            self.page.clock.run_for(500)
+        self.fail('Opponent did not finish within a minute')
+
     def assert_dock_visible(self):
         self.page.wait_for_function("""() => {
             const f = document.querySelector('iframe');
@@ -135,6 +146,7 @@ class BrowserSmokeTest(unittest.TestCase):
     def test_classic_timeout(self):
         self.page.clock.install()
         self.load()
+        self.force_human_start()
         g = self.game
         expect(g.locator("#timing")).to_have_value("60")
         g.locator("#start").click()
@@ -174,22 +186,24 @@ class BrowserSmokeTest(unittest.TestCase):
         g = self.game
         expect(g.locator("#dockClock")).to_have_text("Thinking…")
         expect(g.locator("#end")).to_be_disabled()
-        self.page.clock.run_for(3_900)
+        self.page.clock.run_for(14_900)
         expect(g.locator("#table .tile")).to_have_count(0)
-        self.page.clock.run_for(1_100)  # Seeded delay is 4,945 ms.
+        self.page.clock.run_for(5_000)  # Seeded thinking time is 19,729 ms.
         expect(g.locator("#table .opponent-added")).to_have_count(1)
         expect(g.locator("#dockClock")).to_have_text("Playing…")
         expect(g.locator("#turnNotice")).to_contain_text("Opponent played")
-        self.page.clock.run_for(850)
+        self.page.clock.run_for(2_000)
+        expect(g.locator("#table .opponent-added")).to_have_count(1)
+        self.page.clock.run_for(1_000)
         expect(g.locator("#table .opponent-added")).to_have_count(2)
         expect(g.locator("#end")).to_be_disabled()
         # Finish each visible stage and check no tile disappears or duplicates.
-        for _ in range(30):
+        for _ in range(60):
             ids = g.locator("#table .tile").evaluate_all("els => els.map(el => el.dataset.tile)")
             self.assertEqual(len(ids), len(set(ids)))
             if g.locator("#end").is_enabled():
                 break
-            self.page.clock.run_for(850)
+            self.page.clock.run_for(500)
         expect(g.locator("#end")).to_be_enabled()
         self.assertGreaterEqual(int(g.locator("#dockClock").inner_text().removesuffix("s")), 59)
         self.assertGreaterEqual(g.locator("#table .opponent-added").count(), 3)
@@ -200,7 +214,7 @@ class BrowserSmokeTest(unittest.TestCase):
         self.prepare_computer_play(can_play=False)
         g = self.game
         expect(g.locator("#turnNotice")).to_contain_text("You drew")
-        self.page.clock.run_for(5_000)
+        self.page.clock.run_for(20_000)
         expect(g.locator("#turnNotice")).to_have_text("Opponent drew a tile. Your turn.")
         expect(g.locator("#rack .new-draw")).to_have_count(1)
         expect(g.locator("#table .tile")).to_have_count(0)
@@ -210,6 +224,7 @@ class BrowserSmokeTest(unittest.TestCase):
         self.page.set_viewport_size({"width": 390, "height": 844})
         self.page.clock.install()
         self.load()
+        self.force_human_start()
         g = self.game
         g.locator("#start").click()
         expect(g.locator("#draw")).to_be_enabled()
@@ -219,7 +234,9 @@ class BrowserSmokeTest(unittest.TestCase):
         g.locator("#help .panel").scroll_into_view_if_needed()
         self.page.clock.run_for(51_000)
         self.assert_dock_visible()
-        expect(g.locator("#dockClock")).to_have_text("9s")
+        # Browser interactions also consume real time; verify the final seconds
+        # and urgent state without assuming the preceding clicks took zero time.
+        expect(g.locator("#dockClock")).to_have_text(re.compile(r"[1-9]s"))
         expect(g.locator("#turnDock")).to_have_class("urgent")
         self.page.clock.run_for(9_000)
         expect(g.locator("#rack .new-draw")).to_have_count(3)
@@ -230,7 +247,7 @@ class BrowserSmokeTest(unittest.TestCase):
     def test_new_game_cancels_in_progress_computer_animation(self):
         self.prepare_computer_play()
         g = self.game
-        self.page.clock.run_for(5_000)
+        self.page.clock.run_for(20_000)
         expect(g.locator("#table .opponent-added")).to_have_count(1)
         g.locator("#newGame").click()
         g.locator("#timing").select_option("0")
@@ -253,9 +270,9 @@ class BrowserSmokeTest(unittest.TestCase):
                     rack:rack.filter(id=>![44,70,96].includes(id)), played:3
                 };
                 return {
-                    table:[{id:'split-a',tiles:[13,14,16,18],choice:null},
+                    table:[{id:'split-a',tiles:[13,14,16],choice:null},
                            {id:'split-b',tiles:[20,22,24],choice:null},
-                           table.find(row=>row.tiles.includes(44))],
+                           {id:'expanded-group',tiles:[18,44,70,96],choice:null}],
                     rack:rack.filter(id=>id!==13), played:1
                 };
             };
@@ -264,11 +281,11 @@ class BrowserSmokeTest(unittest.TestCase):
             g.locator(f'#rack [data-tile="{tile}"]').click()
         g.locator("#newSet").click()
         g.locator("#end").click()
-        self.page.clock.run_for(12_000)
+        self.wait_for_human()
         expect(g.locator("#draw")).to_be_enabled()
         before = set(g.locator("#table .tile").evaluate_all("els=>els.map(el=>el.dataset.tile)"))
         g.locator("#draw").click()
-        for _ in range(25):
+        for _ in range(122):
             self.page.clock.run_for(500)
             current = g.locator("#table .tile").evaluate_all("els=>els.map(el=>el.dataset.tile)")
             self.assertTrue(before.issubset(set(current)))
@@ -276,7 +293,7 @@ class BrowserSmokeTest(unittest.TestCase):
             if g.locator("#draw").is_enabled():
                 break
         expect(g.locator("#draw")).to_be_enabled()
-        expect(g.locator("#table .opponent-moved")).to_have_count(6)
+        expect(g.locator("#table .opponent-moved")).to_have_count(9)
         expect(g.locator('#table .opponent-added[data-tile="13"]')).to_have_count(1)
         expect(g.locator("#table .tile")).to_have_count(10)
 
@@ -291,6 +308,13 @@ class BrowserSmokeTest(unittest.TestCase):
         }""", human)
         self.game.locator("#timing").select_option("0")
         self.game.locator("#start").click()
+
+    def force_human_start(self):
+        self.page.frames[1].evaluate("""() => {
+            const shuffle=Rummy.shuffle;
+            Rummy.shuffle=ids=>ids.length===104
+              ?[24,0,...ids.filter(id=>id!==24&&id!==0)]:shuffle(ids);
+        }""")
 
     def stage_set(self, ids):
         for tile in ids:
@@ -382,17 +406,58 @@ class BrowserSmokeTest(unittest.TestCase):
         }""")
         for width in [1280, 390, 768]:
             self.page.set_viewport_size({"width": width, "height": 900})
+            # Streamlit resizes its iframe asynchronously after the host viewport.
+            expect(self.game.locator("#table")).to_have_css("height", "440px" if width == 390 else "380px")
             self.frame.evaluate("window.dispatchEvent(new Event('resize'))")
             self.assert_tiles_fit()
             expect(self.game.locator("#table .tile")).to_have_count(105)
             expect(self.game.locator("#rack .tile")).to_have_count(106)
-            self.assertEqual(self.game.locator("#table").bounding_box()["height"], 440 if width == 390 else 380)
             self.assertTrue(self.frame.evaluate("""() => {
                 const scale=id=>new DOMMatrix(getComputedStyle(document.getElementById(id)).transform).a;
                 return scale('groupsGrid')<1 && scale('rackTiles')<1 &&
                     document.getElementById('table').scrollTop===0 &&
                     document.documentElement.scrollWidth<=window.innerWidth;
             }"""))
+
+    def test_adjacent_runs_join_with_undo_and_larger_unlabelled_tiles(self):
+        self.page.clock.install()
+        self.page.set_viewport_size({"width": 1280, "height": 1000})
+        self.prepare_grid_layout([32,34,36,38,40,42,44,0,2,4,6,8,10,12])
+        g = self.game
+        self.stage_set([32,34,36,38])
+        self.stage_set([40,42,44])
+        expect(g.locator("#runsGrid .meld")).to_have_count(1)
+        expect(g.locator("#runsGrid .tile")).to_have_count(7)
+        expect(g.locator("#table .set-label")).to_have_count(0)
+        expect(g.locator("#runsZone h3")).to_have_text("Runs")
+        expect(g.locator("#groupsZone h3")).to_have_text("Groups")
+        self.assertNotRegex(g.locator("#runsGrid .meld").inner_text(), r"#\d|points|run \d")
+        self.assertGreater(g.locator("#runsGrid .tile").first.bounding_box()["width"], 45)
+        g.locator("#undo").click()
+        expect(g.locator("#runsGrid .tile")).to_have_count(4)
+        expect(g.locator("#rack .tile")).to_have_count(10)
+        self.stage_set([40,42,44])
+        self.frame.evaluate("Rummy.solve=()=>null")
+        g.locator("#end").click()
+        self.wait_for_human()
+        expect(g.locator("#opening")).to_contain_text("Opened")
+        expect(g.locator('.meld:has([data-tile="32"]) .tile')).to_have_count(7)
+
+    def test_computer_joins_its_touching_runs(self):
+        self.page.clock.install()
+        self.prepare_grid_layout(list(range(14)))
+        self.frame.evaluate("""() => {
+            Rummy.solve=(rack,table)=>({
+                table:[...table,{id:'a',tiles:[14,16,18],choice:null},
+                               {id:'b',tiles:[20,22,24],choice:null}],
+                rack:rack.filter(id=>![14,16,18,20,22,24].includes(id)),played:6
+            });
+        }""")
+        self.game.locator("#draw").click()
+        self.wait_for_human()
+        expect(self.game.locator("#runsGrid .meld")).to_have_count(1)
+        expect(self.game.locator("#runsGrid .opponent-added")).to_have_count(6)
+        self.assertEqual(self.game.locator("#runsGrid .number").all_text_contents(), ["8","9","10","11","12","13"])
 
 
 if __name__ == "__main__":

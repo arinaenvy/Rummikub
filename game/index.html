@@ -42,7 +42,6 @@
   .board-zone { min-width:0; min-height:0; display:flex; flex-direction:column;
     border:1px solid #3c6455; border-radius:10px; background:#0e2c22; padding:8px; }
   .board-zone h3 { margin:0 0 6px; font-size:13px; }
-  .board-zone h3 span { color:#b7ccc2; font-weight:normal; }
   #draftsZone { grid-column:1 / -1; }
   .fit-viewport { position:relative; min-width:0; min-height:0; flex:1; overflow:clip; }
   .fit-content { position:absolute; top:0; left:0; transform-origin:top left; padding:4px; }
@@ -50,25 +49,26 @@
   .groups-grid { display:flex; align-items:flex-start; gap:8px; }
   .groups-grid:has(.empty-zone) { flex-direction:column; align-items:center; }
   .group-stack { display:flex; flex-direction:column; align-items:center; gap:8px; }
-  .meld { border:1px solid #5f8575; border-radius:10px; padding:10px;
-          background:#1b4a38; flex:none; }
+  .meld { border:1px solid #5f8575; border-radius:10px; padding:14px 6px 6px;
+          background:#1b4a38; flex:none; display:flex; align-items:center; gap:6px; }
   .meld.invalid { border:2px dashed #e3a596; }
-  .rowhead { justify-content:space-between; margin-bottom:8px; font-size:12px; }
+  .rowhead { display:contents; }
   .rowhead select { width:28px; padding:4px 0; font-size:12px; }
-  .set-actions { display:flex; gap:4px; align-items:center; }
+  .set-actions { display:flex; flex-direction:column; gap:4px; align-items:center; order:2; }
   .set-actions button { width:28px; height:28px; padding:0; font-size:20px; }
-  .meld .tiles { flex-wrap:nowrap; }
-  .group-row, .group-heading { display:grid; grid-template-columns:30px 198px 28px;
+  .meld .tiles { flex-wrap:nowrap; padding:0; min-height:0; }
+  .meld .tile { width:52px; min-width:52px; height:74px; }
+  .meld .tile .number { font-size:32px; }
+  .group-row, .group-heading { display:grid; grid-template-columns:226px 28px;
     gap:6px; align-items:center; padding:15px 6px 6px; }
   .group-row .rowhead { display:contents; }
-  .group-row .set-label { grid-column:1; grid-row:1; font-size:11px; }
-  .group-row .set-actions { grid-column:3; grid-row:1; flex-direction:column; }
-  .group-row .tiles, .group-colors { display:grid; grid-template-columns:repeat(4,45px);
-    gap:6px; grid-column:2; grid-row:1; padding:0; min-height:0; }
+  .group-row .set-actions { grid-column:2; grid-row:1; flex-direction:column; }
+  .group-row .tiles, .group-colors { display:grid; grid-template-columns:repeat(4,52px);
+    gap:6px; grid-column:1; grid-row:1; padding:0; min-height:0; }
   .group-heading { border:1px solid transparent; padding-top:0; padding-bottom:0;
     font-size:10px; color:#c4d6cd; }
   .group-colors { text-align:center; font-size:9px; font-weight:bold; }
-  .empty-slot { width:45px; height:65px; display:flex; align-items:center; justify-content:center;
+  .empty-slot { width:52px; height:74px; display:flex; align-items:center; justify-content:center;
     border:1px dashed #51796a; border-radius:7px; color:#769b89; background:#12392e; }
   .empty-zone { margin:5px; font-size:12px; color:#b7ccc2; }
   .tiles { display:flex; flex-wrap:wrap; gap:6px; min-height:68px; align-content:flex-start; }
@@ -150,15 +150,15 @@
       <p id="tableLegend" class="muted" hidden>BOT = opponent's new tile · MOVED = rearranged tile</p>
       <div id="table">
         <section id="runsZone" class="board-zone" aria-label="Runs">
-          <h3>Runs <span id="runsCount"></span></h3>
+          <h3>Runs</h3>
           <div class="fit-viewport"><div id="runsGrid" class="fit-content meld-grid"></div></div>
         </section>
         <section id="groupsZone" class="board-zone" aria-label="Groups">
-          <h3>Groups <span id="groupsCount"></span></h3>
+          <h3>Groups</h3>
           <div class="fit-viewport"><div id="groupsGrid" class="fit-content groups-grid"></div></div>
         </section>
         <section id="draftsZone" class="board-zone" aria-label="Sets in progress" hidden>
-          <h3>In progress <span id="draftsCount"></span></h3>
+          <h3>In progress</h3>
           <div class="fit-viewport"><div id="draftsGrid" class="fit-content meld-grid"></div></div>
         </section>
       </div>
@@ -212,12 +212,13 @@
         tile. An unfinished invalid arrangement at timeout instead draws three penalty tiles.
         Practice mode removes the time limit. The clock continues if you switch browser tabs.</p>
       <p><b>Following the action:</b> the floating panel keeps your timer and the latest action in view.
-        The computer thinks for 4–8 seconds, then shows its play in steps. Your clock starts after
+        The computer thinks for 15–35 seconds, then pauses between the tiles it plays. Your clock starts after
         its move finishes. NEW marks your latest draw, BOT marks tiles the computer added, and MOVED
         marks table tiles it rearranged. Highlights remain during your next turn, including after sorting.</p>
       <p><b>Table layout:</b> runs and groups have their own areas. Every group uses the same columns:
         Black, Blue, Orange, Red. A missing color leaves an empty slot; a joker occupies the color
-        it represents. Unfinished sets appear under In progress. The table and your rack automatically
+        it represents. Unfinished sets appear under In progress. Touching runs of the same color join automatically, without changing joker meanings.
+        The table and your rack automatically
         shrink their tile grids to keep every tile visible in the same space. Use a set's + button
         to add selected tiles, or its dropdown to choose a joker interpretation.</p>
       <p><b>End and scoring:</b> emptying your rack wins the game. The other rack's numbers are added up,
@@ -319,6 +320,36 @@ const Rummy = (() => {
   function form(row) {
     const options = forms(row.tiles);
     return options.find(option => option.key === row.choice) || options[0] || null;
+  }
+
+  // Join whole touching runs, never overlapping runs, groups, or unfinished sets.
+  // Preserve physical tiles and explicit joker meanings; leave the caller's data intact.
+  function mergeRuns(table, lockedIds = []) {
+    const result=clone(table), locked=new Set(lockedIds);
+    let joined=true;
+    while(joined) {
+      joined=false;
+      outer: for(let i=0;i<result.length;i++) {
+        const a=result[i], fa=form(a);
+        if(locked.has(a.id)||!fa||!fa.key.startsWith('r')) continue;
+        for(let j=i+1;j<result.length;j++) {
+          const b=result[j], fb=form(b);
+          if(locked.has(b.id)||!fb||!fb.key.startsWith('r')) continue;
+          const firstA=fa.faces[fa.ordered[0]], lastA=fa.faces[fa.ordered.at(-1)];
+          const firstB=fb.faces[fb.ordered[0]], lastB=fb.faces[fb.ordered.at(-1)];
+          if(firstA.color!==firstB.color||
+            (lastA.number+1!==firstB.number&&lastB.number+1!==firstA.number)) continue;
+          const faces={...fa.faces,...fb.faces};
+          const combined=forms([...a.tiles,...b.tiles]).find(option=>option.key.startsWith('r')&&
+            option.ordered.every(id=>option.faces[id].number===faces[id].number&&
+              option.faces[id].color===faces[id].color));
+          if(!combined) continue;
+          result[i]={...a,tiles:combined.ordered,choice:combined.key};
+          result.splice(j,1); joined=true; break outer;
+        }
+      }
+    }
+    return result;
   }
 
   // Validate an entire turn, rather than requiring every intermediate edit to work.
@@ -524,7 +555,7 @@ const Rummy = (() => {
     if (best && audit({rack,table},best,opened).ok) return best;
     return null; // Drawing is legal even when a bounded search overlooks a move.
   }
-  return {colors,tiles,clone,value,rackPoints,flat,same,shuffle,forms,form,audit,counts,patterns,solve};
+  return {colors,tiles,clone,value,rackPoints,flat,same,shuffle,forms,form,mergeRuns,audit,counts,patterns,solve};
 })();
 
 // This section connects the rules engine to buttons on the game page.
@@ -738,13 +769,12 @@ const Rummy = (() => {
     const counts={runs:0,groups:0,drafts:0};
     for(const kind of Object.keys(counts)) $(kind+'Grid').replaceChildren();
     const heading=document.createElement('div'); heading.className='group-heading';
-    const setHeading=document.createElement('span'); setHeading.textContent='Set'; heading.appendChild(setHeading);
     const colorHeadings=document.createElement('div'); colorHeadings.className='group-colors';
     groupColors.forEach(color=>{
       const label=document.createElement('span'); label.textContent=E.colors[color]; colorHeadings.appendChild(label);
     });
     heading.appendChild(colorHeadings); $('groupsGrid').appendChild(heading);
-    table.forEach((row,index)=>{
+    table.forEach(row=>{
       const options=E.forms(row.tiles), info=E.form(row), displayInfo=row.previewForm||info;
       const kind=displayInfo?(displayInfo.key.startsWith('g')?'groups':'runs'):'drafts';
       counts[kind]++;
@@ -752,28 +782,23 @@ const Rummy = (() => {
       card.className='meld'+(kind==='groups'?' group-row':'')+(info||aiPreview?'':' invalid');
       card.dataset.setId=row.id; card.dataset.kind=kind;
       const head=document.createElement('div'); head.className='rowhead';
-      const title=document.createElement('span'); title.className='set-label';
-      const description=displayInfo?displayInfo.label+' · '+displayInfo.points+' points'
-        :aiPreview?'Opponent is arranging…':'Incomplete / invalid';
-      title.textContent='#'+(index+1)+(kind==='groups'?'':' · '+description);
-      title.title='Set '+(index+1)+' · '+description;
-      head.appendChild(title);
       const locked=!game.opened[0]&&original&&original.table.some(old=>old.id===row.id);
       const actions=document.createElement('div'); actions.className='set-actions';
       if (options.length>1) {
         const select=document.createElement('select'); select.dataset.choice=row.id;
-        select.setAttribute('aria-label','Joker interpretation for set '+(index+1));
+        select.setAttribute('aria-label','Joker interpretation: '+info.label);
         select.title=info.label+' — choose joker interpretation';
         options.forEach(option=>{
           const item=document.createElement('option'); item.value=option.key;
-          item.textContent=option.label+' ('+option.points+')'; item.selected=option.key===info.key;
+          item.textContent=option.label; item.selected=option.key===info.key;
           select.appendChild(item);
         });
         select.disabled=!canPlay||locked; actions.appendChild(select);
       }
       const add=document.createElement('button'); add.className='small'; add.dataset.add=row.id;
-      add.textContent='+'; add.title='Add selected tiles to set '+(index+1);
-      add.setAttribute('aria-label',add.title); add.disabled=!canPlay||locked||!selection.size;
+      add.textContent='+'; add.title='Add selected tiles here';
+      add.setAttribute('aria-label','Add selected tiles to '+(displayInfo?displayInfo.label:'unfinished set'));
+      add.disabled=!canPlay||locked||!selection.size;
       actions.appendChild(add); head.appendChild(actions); card.appendChild(head);
       const line=document.createElement('div'); line.className='tiles';
       const ordered=(displayInfo?displayInfo.ordered:row.tiles).filter(id=>row.tiles.includes(id));
@@ -784,7 +809,7 @@ const Rummy = (() => {
           if(id!==undefined) cell=tileButton(id,displayInfo.faces[id],!canPlay||locked,true);
           else {
             cell=document.createElement('span'); cell.className='empty-slot'; cell.textContent='—';
-            cell.setAttribute('aria-label','No '+E.colors[color]+' tile in set '+(index+1));
+            cell.setAttribute('aria-label','No '+E.colors[color]+' tile');
           }
           cell.dataset.columnColor=String(color); line.appendChild(cell);
         });
@@ -794,7 +819,6 @@ const Rummy = (() => {
       card.appendChild(line); $(kind+'Grid').appendChild(card);
     });
     for(const [kind,count] of Object.entries(counts)) {
-      $(kind+'Count').textContent=count?'· '+count+' set'+(count===1?'':'s'):'';
       if(!count&&kind!=='drafts') {
         const empty=document.createElement('p'); empty.className='empty-zone';
         empty.textContent=kind==='runs'?'Consecutive tiles of one color go here.':'Matching numbers go here.';
@@ -833,11 +857,16 @@ const Rummy = (() => {
     } else {
       opponentAdded.clear(); opponentMoved.clear();
       message('The computer is considering its move…'); render();
-      scheduleComputer(computerTurn,4000+Math.floor(Math.random()*4001));
+      scheduleComputer(computerTurn,15000+Math.floor(Math.random()*20001));
     }
   }
   function nextTurn() {
     game.turn=1-game.turn; game.turnNumber++; beginTurn();
+  }
+
+  function combineDraftRuns() {
+    // Opening tiles stay separate from the old table until their 30-point play is accepted.
+    draft.table=E.mergeRuns(draft.table,game.opened[0]?[]:original.table.map(row=>row.id));
   }
 
   // Save an undo step before moving anything. The clock intentionally keeps running.
@@ -867,6 +896,7 @@ const Rummy = (() => {
       if (target) { target.tiles.push(...moving); target.choice=null; }
     }
     draft.table=draft.table.filter(row=>row.tiles.length); // Remove emptied rows.
+    combineDraftRuns();
     selection.clear(); message('Move staged. Every set must be valid before you end your turn.'); render();
   }
 
@@ -877,7 +907,7 @@ const Rummy = (() => {
     const who=game.turn, opening=!game.opened[who];
     if(who===0) recentlyDrawn.clear();
     aiPreview=null; aiPlayed=0;
-    game.table=candidate.table.map(row=>({...freshRow(row.tiles),choice:E.form(row).key}));
+    game.table=E.mergeRuns(candidate.table).map(row=>({...freshRow(row.tiles),choice:E.form(row).key}));
     game.racks[who]=[...candidate.rack]; game.opened[who]=true; game.passes=0;
     log(names[who]+' played '+check.played+' tile'+(check.played===1?'':'s')+
       (opening?' and opened with '+check.openingPoints+' points.':'.'));
@@ -906,7 +936,8 @@ const Rummy = (() => {
 
   // The computer sees the public table plus its own rack, never the human's rack.
   function computerTurn() {
-    const plan=E.solve(game.racks[1],game.table,game.opened[1]);
+    let plan=E.solve(game.racks[1],game.table,game.opened[1]);
+    if(plan) plan={...plan,table:E.mergeRuns(plan.table,game.opened[1]?[]:game.table.map(row=>row.id))};
     if (!plan||!E.audit(original,plan,game.opened[1]).ok) { drawAndEnd(); return; }
 
     // Reveal changed sets and new rack tiles in order, preserving physical IDs.
@@ -921,7 +952,7 @@ const Rummy = (() => {
       added.forEach(id=>steps.push({target,ids:[id],kind:'add'}));
     });
     aiPreview=E.clone(game.table);
-    const interval=Math.min(850,18000/Math.max(1,steps.length));
+    const animationStarted=Date.now();
     let index=0;
     function reveal() {
       if(index===steps.length) { commit(plan); return; }
@@ -941,7 +972,11 @@ const Rummy = (() => {
       }
       message('Watch the opponent’s move. Your timer starts when the move finishes.');
       render();
-      scheduleComputer(reveal,interval);
+      // Leave time to follow each tile. Keep even unusually large plays within
+      // a 24-second animation budget, after at most 35 seconds of thinking.
+      const pause=2000+Math.floor(Math.random()*2001);
+      const remaining=Math.max(0,24000-(Date.now()-animationStarted));
+      scheduleComputer(reveal,Math.min(pause,remaining/(steps.length-index+1)));
     }
     reveal();
   }
@@ -1019,7 +1054,7 @@ const Rummy = (() => {
   $('table').addEventListener('change',event=>{
     const select=event.target.closest('[data-choice]');
     if(!human()||!select||select.disabled) return;
-    checkpoint(); draft.table.find(row=>row.id===select.dataset.choice).choice=select.value; render();
+    checkpoint(); draft.table.find(row=>row.id===select.dataset.choice).choice=select.value; combineDraftRuns(); render();
   });
   $('start').addEventListener('click',startGame);
   $('newGame').addEventListener('click',()=>{
@@ -1056,7 +1091,7 @@ const Rummy = (() => {
       if(plan){checkpoint();draft={rack:plan.rack,table:plan.table.map(row=>({...freshRow(row.tiles),choice:row.choice}))};
         // Preserve locked old row IDs during the opening meld.
         if(!game.opened[0])draft.table.splice(0,original.table.length,...E.clone(original.table));
-        selection.clear();message('Suggested play staged. Review it, then click End turn, or Undo.');}
+        combineDraftRuns(); selection.clear();message('Suggested play staged. Review it, then click End turn, or Undo.');}
       else message('No move found in this search. You can still try your own arrangement or draw.');
       render();
     },50);
