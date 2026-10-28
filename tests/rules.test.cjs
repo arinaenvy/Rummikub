@@ -124,3 +124,28 @@ test('joining supports the full 1–13 run and never wraps 13 back to 1', () => 
   assert.equal(E.form(E.mergeRuns(table)[0]).key, 'r2:1:13');
   assert.equal(E.mergeRuns([table[0],row('end',[11,12,13].map(n=>id(2,n)))]).length, 2);
 });
+
+test('opponent lapses draw occasionally while preserving the found move', () => {
+  const rack = [id(0,10),id(1,10),id(2,10),id(0,1)];
+  const plan = E.solve(rack, [], false);
+  assert.ok(plan);
+  const snapshot = JSON.stringify(plan);
+  assert.equal(E.shouldOverlookMove(plan, 40, false, ()=>0.1), true);
+  assert.equal(E.shouldOverlookMove(plan, 40, false, ()=>0.8), false);
+  assert.equal(E.shouldOverlookMove(plan, 40, false, ()=>0.15), false);
+  assert.equal(JSON.stringify(plan), snapshot);
+  assert.equal(E.audit({rack,table:[]},plan,false).ok, true);
+});
+
+test('opponent keeps immediate wins and never deliberately stalls with an empty pool', () => {
+  const rack = [id(0,10),id(1,10),id(2,10)];
+  const win = E.solve(rack, [], false);
+  assert.ok(win);
+  assert.equal(win.rack.length, 0);
+  const neverRoll = ()=>{ throw new Error('Protected turns must not roll for a lapse'); };
+  assert.equal(E.shouldOverlookMove(win, 20, false, neverRoll), false);
+  const plan = E.solve([...rack,id(0,1)], [], false);
+  assert.equal(E.shouldOverlookMove(plan, 0, false, neverRoll), false);
+  assert.equal(E.shouldOverlookMove(plan, 20, true, neverRoll), false);
+  assert.equal(E.shouldOverlookMove(null, 20, false, neverRoll), false);
+});

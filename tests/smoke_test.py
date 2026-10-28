@@ -157,11 +157,17 @@ class BrowserSmokeTest(unittest.TestCase):
         expect(g.locator("#rack .tile")).to_have_count(15)
         expect(g.locator("#rack .new-draw")).to_have_count(1)
 
-    def prepare_computer_play(self, can_play=True, draw=True):
+    def prepare_computer_play(self, can_play=True, draw=True, overlook=False):
         """Deal a known legal computer opening, using the real solver."""
         self.page.clock.install()
         self.load()
         self.frame = self.page.frames[1]
+        # Control only the lapse roll; retain the production policy, cooldown,
+        # solver, auditing, and the existing deterministic animation timings.
+        self.frame.evaluate("""overlook => {
+            const decide=Rummy.shouldOverlookMove;
+            Rummy.shouldOverlookMove=(plan,pool,missed)=>decide(plan,pool,missed,()=>overlook?0.05:0.5);
+        }""", overlook)
         self.frame.evaluate("""() => {
             const human = [0,2,4,6,8,10,12,14,16,18,20,22,24,26];
             const bot = [44,70,96,28,32,36,40,48,52,56,60,64,68,13];
@@ -458,6 +464,58 @@ class BrowserSmokeTest(unittest.TestCase):
         expect(self.game.locator("#runsGrid .meld")).to_have_count(1)
         expect(self.game.locator("#runsGrid .opponent-added")).to_have_count(6)
         self.assertEqual(self.game.locator("#runsGrid .number").all_text_contents(), ["8","9","10","11","12","13"])
+
+    def test_opponent_can_overlook_a_move_but_not_twice_in_a_row(self):
+        self.prepare_computer_play(draw=False, overlook=True)
+        g = self.game
+        # Human suggestions still work even when every eligible bot lapse roll succeeds.
+        g.locator("#hint").click()
+        self.page.clock.run_for(100)
+        expect(g.locator("#message")).to_contain_text("Suggested play staged")
+        self.assertGreater(g.locator("#table .tile").count(), 0)
+        g.locator("#undo").click()
+        expect(g.locator("#rack .tile")).to_have_count(14)
+        g.locator("#draw").click()
+        self.wait_for_human()
+        expect(g.locator("#table .tile")).to_have_count(0)
+        expect(g.locator("#opponent")).to_contain_text("15 tiles")
+        expect(g.locator("#pool")).to_have_text("Pool: 76")
+        expect(g.locator("#turnNotice")).to_have_text("Opponent drew a tile. Your turn.")
+        # The same low roll on the next turn must still result in a legal play.
+        g.locator("#draw").click()
+        self.wait_for_human()
+        expect(g.locator("#log")).to_contain_text("Computer played")
+        self.assertGreater(g.locator("#table .opponent-added").count(), 0)
+
+    def test_new_game_resets_opponent_lapse_cooldown(self):
+        self.prepare_computer_play(overlook=True)
+        self.wait_for_human()
+        g = self.game
+        expect(g.locator("#opponent")).to_contain_text("15 tiles")
+        g.locator("#newGame").click()
+        g.locator("#start").click()
+        g.locator("#draw").click()
+        self.wait_for_human()
+        expect(g.locator("#table .tile")).to_have_count(0)
+        expect(g.locator("#opponent")).to_contain_text("15 tiles")
+        expect(g.locator("#turnNotice")).to_have_text("Opponent drew a tile. Your turn.")
+
+    def test_opponent_takes_an_immediate_win_despite_a_low_lapse_roll(self):
+        self.page.clock.install()
+        self.prepare_grid_layout(list(range(26,40)))
+        self.frame.evaluate("""() => {
+            Math.random=()=>0;
+            Rummy.solve=(rack,table)=>({
+                table:[...table,{id:'a',tiles:[0,2,4,6,8,10,12],choice:null},
+                               {id:'b',tiles:[1,3,5,7,9,11,13],choice:null}],
+                rack:[],played:14
+            });
+        }""")
+        self.game.locator("#draw").click()
+        self.page.clock.run_for(45_000)
+        expect(self.game.locator("#finished")).to_be_visible()
+        expect(self.game.locator("#finished h2")).to_have_text("Computer wins!")
+        expect(self.game.locator("#table .opponent-added")).to_have_count(14)
 
 
 if __name__ == "__main__":

@@ -227,7 +227,10 @@
         If the pool is empty and both players pass, continue if a move remains. Otherwise use
         Finish blocked game; the lower rack total wins the difference.</p>
       <p><b>Suggest move:</b> stages a possible play for you to review. Click End turn to accept it,
-        or Undo to continue your own arrangement. The computer uses the same search and cannot see your rack.</p>
+        or Undo to continue your own arrangement. The computer uses the same search and cannot see your rack.
+        It has a 15% chance to overlook a playable move and draw, but never intentionally misses twice
+        in a row, passes up an immediate win, or overlooks a move when the pool is empty.
+        Suggestions always use the full search.</p>
     </div>
   </details>
 </main>
@@ -556,7 +559,13 @@ const Rummy = (() => {
     if (best && audit({rack,table},best,opened).ok) return best;
     return null; // Drawing is legal even when a bounded search overlooks a move.
   }
-  return {colors,tiles,clone,value,rackPoints,flat,same,shuffle,forms,form,mergeRuns,audit,counts,patterns,solve};
+  // A small lapse rate makes the opponent fallible without weakening Hint's search.
+  // Only call this for an audited plan; drawing must still be available.
+  function shouldOverlookMove(plan, poolCount, missedLastTurn, random = Math.random) {
+    if(!plan||!plan.rack.length||poolCount<=0||missedLastTurn) return false;
+    return random()<0.15;
+  }
+  return {colors,tiles,clone,value,rackPoints,flat,same,shuffle,forms,form,mergeRuns,audit,counts,patterns,solve,shouldOverlookMove};
 })();
 
 // This section connects the rules engine to buttons on the game page.
@@ -572,6 +581,7 @@ const Rummy = (() => {
   let deadline = 0, busy = false; // Current turn's clock and temporary search lock.
   let totals = [0,0], wins = [0,0], games = 0; // Session scores across fresh games.
   let aiPreview = null, aiPlayed = 0; // Animation never mutates the committed position.
+  let missedLastComputerTurn = false;
   let recentlyDrawn = new Set(), opponentAdded = new Set(), opponentMoved = new Set();
 
   const tileName = id => E.tiles[id].type===52 ? 'Joker' : E.colors[E.tiles[id].color]+' '+E.tiles[id].number;
@@ -939,7 +949,13 @@ const Rummy = (() => {
   function computerTurn() {
     let plan=E.solve(game.racks[1],game.table,game.opened[1]);
     if(plan) plan={...plan,table:E.mergeRuns(plan.table,game.opened[1]?[]:game.table.map(row=>row.id))};
-    if (!plan||!E.audit(original,plan,game.opened[1]).ok) { drawAndEnd(); return; }
+    if (!plan||!E.audit(original,plan,game.opened[1]).ok) {
+      missedLastComputerTurn=false; drawAndEnd(); return;
+    }
+    if(E.shouldOverlookMove(plan,game.pool.length,missedLastComputerTurn)) {
+      missedLastComputerTurn=true; drawAndEnd(); return;
+    }
+    missedLastComputerTurn=false;
 
     // Reveal changed sets and new rack tiles in order, preserving physical IDs.
     // Only the audited final plan is committed; intermediate layouts are visual.
@@ -1006,6 +1022,7 @@ const Rummy = (() => {
   // Start-player draws are returned before the actual deal, as in the physical game.
   function startGame() {
     epoch++; clearTimeout(aiJob); rowId=0;
+    missedLastComputerTurn=false;
     aiPreview=null; aiPlayed=0; recentlyDrawn.clear(); opponentAdded.clear(); opponentMoved.clear();
     const ids=E.tiles.map(t=>t.id); let a,b;
     do { [a,b]=E.shuffle(ids.filter(id=>E.tiles[id].type!==52)); }

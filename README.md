@@ -11,6 +11,12 @@ to fit within 24 seconds of animation. Your latest drawn tiles carry a **NEW** b
 the opponent's additions show **BOT** and rearranged table tiles show **MOVED**.
 These highlights remain throughout your next turn, including after sorting.
 
+The opponent uses its normal solver but has a 15% chance to overlook an otherwise
+playable move and draw instead. It never intentionally misses twice in a row,
+declines an immediate win, or misses a found move when the pool is empty. This
+adds occasional mistakes without changing the deal or looking at your rack.
+**Suggest move** always uses the full search and is unaffected by this behavior.
+
 The table and rack use fixed-size areas that automatically fit all their tiles.
 Runs and groups are separate. Groups keep the color order **Black, Blue, Orange,
 Red**, with a blank slot for each missing color and jokers in the column they
