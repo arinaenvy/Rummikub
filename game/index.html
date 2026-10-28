@@ -7,11 +7,37 @@
 <style>
   /* All styles live inside the output frame, so they cannot restyle the host page. */
   * { box-sizing:border-box; }
-  body { margin:0; padding:18px; background:#0c2822; color:#f3f3e7;
+  html, body { height:100%; overflow:hidden; }
+  body { margin:0; padding:8px; background:#0c2822; color:#f3f3e7;
          font:15px/1.45 Arial,sans-serif; }
-  main { max-width:1100px; margin:auto; padding-bottom:120px; }
-  h1 { margin:0; font-size:28px; letter-spacing:-1px; }
-  h2 { margin:0 0 10px; font-size:17px; }
+  main { height:100%; max-width:1600px; margin:auto; display:grid;
+    grid-template-rows:auto minmax(0,1fr) auto; gap:6px; }
+  #appHeader { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .header-actions { display:flex; gap:5px; }
+  #appHeader button { padding:5px 9px; font-size:12px; }
+  #game { min-height:0; display:grid; grid-template-rows:auto auto minmax(0,1fr); gap:5px; }
+  #playArea { min-height:0; display:grid; grid-template-rows:minmax(0,1fr) minmax(0,min(48%,280px)); gap:6px; }
+  #tablePanel { min-height:0; display:flex; flex-direction:column; }
+  #rackPanel { min-height:0; display:grid; grid-template-rows:auto auto minmax(0,1fr) auto auto; gap:4px; }
+  #rackHeading { display:flex; align-items:center; justify-content:space-between; gap:6px; }
+  #rackHeading h2 { margin:0; white-space:nowrap; }
+  #opening { font-size:11px; text-align:right; }
+  .rack-tools, .rack-actions { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px; }
+  .rack-tools button, .rack-actions button { min-width:0; padding:5px 3px; font-size:12px; }
+  .turn-actions { display:flex; gap:5px; }
+  .turn-actions button { flex:1; padding:6px 4px; font-size:13px; }
+  .sr-only { position:absolute!important; width:1px!important; height:1px!important;
+    padding:0!important; margin:-1px!important; overflow:hidden!important; clip-path:inset(50%); white-space:nowrap; }
+  dialog { color:#f3f3e7; background:#12392e; border:1px solid #6c9b85; border-radius:14px;
+    width:min(620px,calc(100% - 24px)); max-height:calc(100% - 24px); padding:18px; overflow:auto; }
+  dialog::backdrop { background:#061b16c9; }
+  .dialog-header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; }
+  .dialog-header h2 { margin:0; }
+  dialog .panel { padding:0; border:0; margin:0; }
+  dialog .tools { margin-top:10px; }
+
+  h1 { margin:0; font-size:23px; letter-spacing:-1px; }
+  h2 { margin:0 0 5px; font-size:14px; }
   p { margin:8px 0; }
   .muted { color:#b7ccc2; font-size:13px; }
   .top, .tools, .stats, .rowhead { display:flex; flex-wrap:wrap; gap:9px; align-items:center; }
@@ -27,21 +53,21 @@
   .primary { background:#e8d58e; border-color:#e8d58e; color:#152b20; font-weight:bold; }
   .small { padding:5px 9px; font-size:12px; }
   .panel { background:#12392e; border:1px solid #3c6455; border-radius:14px;
-           padding:16px; margin-bottom:14px; }
-  .stats { justify-content:space-between; margin-bottom:10px; font-size:14px; }
-  .badge { background:#214d3e; border-radius:8px; padding:7px 10px; }
+           padding:7px; margin:0; }
+  .stats { justify-content:space-between; gap:5px; font-size:12px; }
+  .badge { background:#214d3e; border-radius:8px; padding:3px 7px; }
   #clock { font-variant-numeric:tabular-nums; }
   #clock.urgent { background:#8c302f; color:white; }
-  #message { min-height:44px; padding:10px 13px; border-radius:8px;
-             background:#214d3e; margin:10px 0; }
+  #message { padding:5px 9px; border-radius:8px; font-size:12px; line-height:1.3;
+             background:#214d3e; margin:0; }
   #message.error { background:#713b35; }
   /* Each area has a fixed footprint. Its complete tile grid scales to fit. */
-  #table { height:380px; display:grid; grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);
-    gap:10px; }
-  #table.has-drafts { grid-template-rows:minmax(0,1fr) minmax(80px,.4fr); }
+  #table { flex:1; min-height:0; display:grid; grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);
+    gap:6px; }
+  #table.has-drafts { grid-template-rows:minmax(0,1fr) minmax(0,.4fr); }
   .board-zone { min-width:0; min-height:0; display:flex; flex-direction:column;
-    border:1px solid #3c6455; border-radius:10px; background:#0e2c22; padding:8px; }
-  .board-zone h3 { margin:0 0 6px; font-size:13px; }
+    border:1px solid #3c6455; border-radius:10px; background:#0e2c22; padding:5px; }
+  .board-zone h3 { margin:0 0 3px; font-size:12px; }
   #draftsZone { grid-column:1 / -1; }
   .fit-viewport { position:relative; min-width:0; min-height:0; flex:1; overflow:clip; }
   .fit-content { position:absolute; top:0; left:0; transform-origin:top left; padding:4px; }
@@ -93,60 +119,65 @@
   .tile.opponent-added .change-tag { background:#79e8cf; }
   .tile.opponent-moved .change-tag { background:#a5c9ff; }
   .tiles { padding-top:12px; }
-  #turnDock { position:fixed; right:12px; bottom:12px; width:min(360px,calc(100% - 24px));
-    z-index:20; pointer-events:none; border:1px solid #6c9b85; border-radius:12px;
-    background:#102d26; box-shadow:0 5px 24px #0006; padding:10px 14px; }
-  #dockTimer { display:flex; justify-content:space-between; align-items:center; gap:10px; }
-  #dockClock { font-size:22px; font-weight:bold; font-variant-numeric:tabular-nums; color:#ffdf83; }
+  #turnDock { min-width:0; display:grid; grid-template-columns:auto minmax(0,1fr);
+    align-items:center; gap:12px; border:1px solid #6c9b85; border-radius:10px;
+    background:#102d26; padding:6px 10px; }
+  #dockTimer { display:flex; align-items:center; gap:9px; font-size:12px; }
+  #dockClock { font-size:23px; font-weight:bold; font-variant-numeric:tabular-nums; color:#ffdf83; white-space:nowrap; }
   #turnDock.urgent { border-color:#ff9d87; background:#592e29; }
   #turnDock.urgent #dockClock { color:#ffc4b5; }
-  #turnNotice { margin-top:5px; font-size:13px; color:#d3e5dc; }
-  #tableLegend { margin:0 0 10px; }
+  #turnNotice { font-size:12px; line-height:1.3; color:#d3e5dc; }
+  #tableLegend { margin:0 0 3px; font-size:10px; }
   .tile:disabled { opacity:1; cursor:default; } /* Locked tiles remain readable. */
-  #rack { height:160px; padding:12px; border-radius:10px; background:#0e2c22; margin:10px 0; }
+  #rack { padding:4px; border-radius:8px; background:#0e2c22; }
   #rackTiles { display:grid; grid-template-columns:repeat(auto-fill,45px); gap:14px 6px;
     align-content:start; padding:12px 4px 4px; }
   #selected { font-size:13px; color:#ffdf83; min-height:20px; margin:8px 0; }
-  #log { max-height:150px; overflow:auto; margin:8px 0 0; padding-left:24px; color:#c4d6cd; }
+  #log { margin:8px 0 0; padding-left:24px; color:#c4d6cd; }
   details { margin-top:12px; } summary { cursor:pointer; color:#ebd795; }
   #finished { background:#234d37; border:2px solid #e8d58e; }
   [hidden] { display:none !important; }
   @media(max-width:600px) {
-    body { padding:8px; } .panel { padding:10px; }
-    #table { height:440px; grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(0,1.1fr) minmax(0,1fr); }
-    #table.has-drafts { grid-template-rows:minmax(0,1fr) minmax(0,1fr) minmax(70px,.55fr); }
-    #rack { height:180px; }
+    body { padding:5px; } main { gap:4px; }
+    h1 { font-size:19px; } .panel { padding:5px; }
+    #appHeader button { padding:5px 7px; font-size:11px; }
+    #table { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(0,1.1fr) minmax(0,1fr); }
+    #table.has-drafts { grid-template-rows:repeat(3,minmax(0,1fr)); }
+    #turnDock { gap:8px; padding:5px 7px; }
+    #dockTimer { flex-direction:column; gap:0; align-items:flex-start; min-width:74px; font-size:10px; }
+    #dockClock { font-size:21px; }
+    #turnNotice { font-size:11px; }
   }
+  @media(max-height:650px) {
+    body { padding:4px; } main, #playArea { gap:4px; }
+    #game { gap:3px; } #rackPanel { gap:3px; }
+    .panel { padding:4px; } h1 { font-size:18px; } h2 { font-size:12px; }
+    #appHeader button, .rack-tools button, .rack-actions button { padding:4px 3px; font-size:11px; }
+    .turn-actions button { padding:4px; font-size:12px; }
+    #message, .stats { font-size:11px; }
+    .board-zone { padding:3px; } .board-zone h3 { font-size:10px; }
+  }
+  @media(max-height:600px) and (min-width:550px) {
+    #playArea { grid-template-columns:minmax(0,1.5fr) minmax(0,1fr); grid-template-rows:minmax(0,1fr); }
+  }
+
 </style>
 </head>
 <body>
 <main>
-  <div class="top">
-    <div><h1>Rummikub</h1><div class="muted">Classic tiles · you vs. computer</div></div>
-    <button id="newGame">New game</button>
-  </div>
-
-  <!-- The clock starts only after the player deliberately starts a game. -->
-  <section id="setup" class="panel">
-    <h2>Ready to play?</h2>
-    <p>Click tiles to select them, then choose <b>New set</b> or <b>+</b> beside a set.
-       Your first play must total at least <b>30</b>. After opening, you can rearrange the table.</p>
-    <div class="tools">
-      <label for="timing">Turn limit:</label>
-      <select id="timing"><option value="60">Classic — 60 seconds</option>
-        <option value="0">Practice — no timer</option></select>
-      <button id="start" class="primary">Start game</button>
-      <button id="cancelNew" hidden>Keep playing</button>
-    </div>
-    <p class="muted">106 tiles · 14 each · 2 jokers · runs of 3+ · groups of 3 or 4</p>
-  </section>
+  <header id="appHeader">
+    <h1>Rummikub</h1>
+    <nav class="header-actions" aria-label="Game options">
+      <button id="helpButton">Rules</button><button id="logButton">Log</button><button id="newGame">New game</button>
+    </nav>
+  </header>
 
   <div id="game" hidden>
-    <div class="stats"><span id="turn" class="badge"></span><span id="pool" class="badge"></span>
-      <span id="opponent" class="badge"></span><span id="clock" class="badge"></span></div>
+    <div class="stats"><span id="turn" class="sr-only" aria-hidden="true"></span><span id="pool" class="badge"></span>
+      <span id="opponent" class="badge"></span><span id="clock" class="sr-only" aria-hidden="true"></span></div>
     <div id="message" role="status" aria-live="polite"></div>
-    <section id="finished" class="panel" hidden></section>
-    <section class="panel">
+    <div id="playArea">
+    <section id="tablePanel" class="panel">
       <h2>Shared table</h2>
       <p id="tableLegend" class="muted" hidden>BOT = opponent's new tile · MOVED = rearranged tile</p>
       <div id="table">
@@ -164,34 +195,53 @@
         </section>
       </div>
     </section>
-    <section class="panel">
-      <div class="top"><h2 id="rackTitle">Your rack</h2><span id="opening" class="muted"></span></div>
-      <div class="tools">
-        <button id="sortColor" class="small">Sort by color</button>
-        <button id="sortNumber" class="small">Sort by number</button>
-        <button id="clear" class="small">Clear selection</button>
-        <button id="hint" class="small">Suggest move</button>
+    <section id="rackPanel" class="panel">
+      <div id="rackHeading"><h2 id="rackTitle">Your rack</h2><span id="opening" class="muted"></span></div>
+      <div class="rack-tools">
+        <button id="sortColor" class="small" title="Sort by color">Color</button>
+        <button id="sortNumber" class="small" title="Sort by number">Number</button>
+        <button id="clear" class="small" title="Clear selection">Clear</button>
+        <button id="hint" class="small" title="Suggest a move">Suggest</button>
       </div>
       <div id="rack" class="fit-viewport"><div id="rackTiles" class="fit-content"></div></div>
-      <div id="selected"></div>
-      <div class="tools">
-        <button id="newSet">New set from selected</button>
-        <button id="return">Return selected to rack</button>
-        <button id="undo">Undo move</button><button id="reset">Reset turn</button>
+      <div id="selected" class="sr-only" role="status"></div>
+      <div class="rack-actions">
+        <button id="newSet" title="New set from selected tiles">New set</button>
+        <button id="return" title="Return selected tiles to rack">To rack</button>
+        <button id="undo" title="Undo last move">Undo</button><button id="reset" title="Reset turn">Reset</button>
       </div>
-      <div class="tools" style="margin-top:12px">
+      <div class="turn-actions">
         <button id="end" class="primary">End turn</button>
-        <button id="draw">Draw 1 &amp; end turn</button>
-        <button id="blocked" hidden>Finish blocked game</button>
+        <button id="draw" title="Draw one tile and end your turn">Draw 1</button>
+        <button id="blocked" hidden>Finish blocked</button>
       </div>
-      <p class="muted">Table tiles must stay on the table. Drawing cancels uncommitted edits.
-        Undo and Reset do not restart your clock.</p>
     </section>
-    <details><summary>Game log</summary><ol id="log"></ol></details>
+    </div>
   </div>
 
-  <details id="help"><summary>How to play · rules and controls</summary>
-    <div class="panel" style="margin-top:10px">
+<aside id="turnDock" aria-label="Turn timer and latest action" hidden>
+  <div id="dockTimer"><span id="dockTurn"></span><span id="dockClock" role="timer" aria-live="off"></span></div>
+  <div id="turnNotice" role="status" aria-live="polite" aria-atomic="true"></div>
+</aside>
+</main>
+  <!-- The clock starts only after the player deliberately starts a game. -->
+  <dialog id="setup" aria-labelledby="setupTitle">
+    <h2 id="setupTitle">Ready to play?</h2>
+    <p>Click tiles to select them, then choose <b>New set</b> or <b>+</b> beside a set.
+       Your first play must total at least <b>30</b>. After opening, you can rearrange the table.</p>
+    <div class="tools">
+      <label for="timing">Turn limit:</label>
+      <select id="timing"><option value="60">Classic — 60 seconds</option>
+        <option value="0">Practice — no timer</option></select>
+      <button id="start" class="primary">Start game</button>
+      <button id="cancelNew" hidden>Keep playing</button>
+    </div>
+    <p class="muted">106 tiles · 14 each · 2 jokers · runs of 3+ · groups of 3 or 4</p>
+  </dialog>
+
+  <dialog id="help" aria-labelledby="helpTitle">
+    <div class="dialog-header"><h2 id="helpTitle">How to play</h2><button data-close="help">Close</button></div>
+    <div class="panel">
       <p><b>Goal:</b> empty your rack before the computer.</p>
       <p><b>Groups:</b> 3 or 4 equal numbers, all different colors. Example: red 8, blue 8, black 8.</p>
       <p><b>Runs:</b> 3 or more consecutive numbers of one color. Example: blue 4, 5, 6.
@@ -212,7 +262,7 @@
       <p><b>Clock:</b> the default is 60 seconds. Timeout restores the start-of-turn layout and draws one
         tile. An unfinished invalid arrangement at timeout instead draws three penalty tiles.
         Practice mode removes the time limit. The clock continues if you switch browser tabs.</p>
-      <p><b>Following the action:</b> the floating panel keeps your timer and the latest action in view.
+      <p><b>Following the action:</b> the bottom bar keeps your timer and the latest action in view.
         The computer thinks for 15–35 seconds, then pauses between the tiles it plays. Your clock starts after
         its move finishes. NEW marks your latest draw, BOT marks tiles the computer added, and MOVED
         marks table tiles it rearranged. Highlights remain during your next turn, including after sorting.</p>
@@ -231,13 +281,14 @@
         It has a 15% chance to overlook a playable move and draw, but never intentionally misses twice
         in a row, passes up an immediate win, or overlooks a move when the pool is empty.
         Suggestions always use the full search.</p>
+      <p class="muted">Your game stays in this browser tab. Refreshing or closing the page resets the game and session scores.</p>
     </div>
-  </details>
-</main>
-<aside id="turnDock" aria-label="Turn timer and latest action" hidden>
-  <div id="dockTimer"><span id="dockTurn"></span><span id="dockClock" role="timer" aria-live="off"></span></div>
-  <div id="turnNotice" role="status" aria-live="polite" aria-atomic="true"></div>
-</aside>
+  </dialog>
+<dialog id="logDialog" aria-labelledby="logTitle">
+  <div class="dialog-header"><h2 id="logTitle">Game log</h2><button data-close="logDialog">Close</button></div>
+  <ol id="log"></ol>
+</dialog>
+<dialog id="finished" aria-label="Game result"></dialog>
 <!-- All game code is inserted here; no script is downloaded from the internet. -->
 <script>
 // This engine contains the rules. It never reads the screen or the other rack.
@@ -585,39 +636,7 @@ const Rummy = (() => {
   let recentlyDrawn = new Set(), opponentAdded = new Set(), opponentMoved = new Set();
 
   const tileName = id => E.tiles[id].type===52 ? 'Joker' : E.colors[E.tiles[id].color]+' '+E.tiles[id].number;
-  function notify(text) { $('turnNotice').textContent=text; positionDock(); }
-
-  // Streamlit scrolls the host page, not this tall iframe. Position the dock in
-  // the visible part of the frame without changing anything in the host DOM.
-  function positionDock() {
-    const dock=$('turnDock');
-    let visibleBottom=window.innerHeight, visibleTop=0;
-    try {
-      if (window.frameElement) {
-        const bounds=window.frameElement.getBoundingClientRect();
-        const viewport=window.parent.visualViewport;
-        const top=viewport?viewport.offsetTop:0;
-        const bottom=top+(viewport?viewport.height:window.parent.innerHeight);
-        visibleBottom=Math.min(window.innerHeight,bottom-bounds.top);
-        visibleTop=Math.max(0,top-bounds.top);
-      }
-    } catch (_) { /* Standalone/cross-origin hosts use their own frame viewport. */ }
-    dock.style.bottom=Math.max(12,window.innerHeight-visibleBottom+12)+'px';
-    dock.style.visibility=visibleBottom-visibleTop>dock.offsetHeight+24?'visible':'hidden';
-  }
-  window.addEventListener('resize',positionDock);
-  try {
-    window.parent.addEventListener('scroll',positionDock,true);
-    window.parent.addEventListener('resize',positionDock);
-    window.parent.visualViewport?.addEventListener('resize',positionDock);
-    window.parent.visualViewport?.addEventListener('scroll',positionDock);
-    window.addEventListener('pagehide',()=>{
-      window.parent.removeEventListener('scroll',positionDock,true);
-      window.parent.removeEventListener('resize',positionDock);
-      window.parent.visualViewport?.removeEventListener('resize',positionDock);
-      window.parent.visualViewport?.removeEventListener('scroll',positionDock);
-    },{once:true});
-  } catch (_) { /* Parent access is optional for standalone embedding. */ }
+  function notify(text) { $('turnNotice').textContent=text; }
 
   function scheduleComputer(action, delay) {
     const token=epoch;
@@ -742,17 +761,37 @@ const Rummy = (() => {
     const table=$('table');
     if(window.matchMedia('(max-width:600px)').matches) {
       const zones=['runs','groups',...($('draftsZone').hidden?[]:['drafts'])];
-      const weights=zones.map(kind=>{
-        const content=$(kind+'Grid'), viewport=content.parentElement;
-        content.style.width=viewport.clientWidth+'px';
-        const cards=[...content.querySelectorAll('.meld')];
-        let naturalHeight=cards.length?content.scrollHeight:30;
-        if(kind==='groups'&&cards.length) naturalHeight=30+cards.reduce((sum,card)=>sum+card.offsetHeight+8,0);
-        return Math.max(1,naturalHeight+30-70);
-      });
-      const extra=Math.max(0,table.clientHeight-10*(zones.length-1)-70*zones.length);
-      const total=weights.reduce((a,b)=>a+b,0);
-      table.style.gridTemplateRows=weights.map(weight=>(70+extra*weight/total)+'px').join(' ');
+      const available=Math.max(1,table.clientHeight-6*(zones.length-1)-1);
+      function requiredHeights(scale) {
+        return zones.map(kind=>{
+          const content=$(kind+'Grid'), viewport=content.parentElement;
+          const zone=$(kind+'Zone'), heading=zone.querySelector('h3');
+          const style=getComputedStyle(zone), titleStyle=getComputedStyle(heading);
+          const overhead=zone.clientTop*2+parseFloat(style.paddingTop)+parseFloat(style.paddingBottom)
+            +heading.offsetHeight+parseFloat(titleStyle.marginTop)+parseFloat(titleStyle.marginBottom);
+          const width=viewport.clientWidth, cards=[...content.querySelectorAll('.meld')];
+          if(!width) return available;
+          content.style.width=Math.floor(width/scale)+'px';
+          if(kind==='groups'&&cards.length) {
+            const colorHeading=content.querySelector('.group-heading');
+            const cardWidth=Math.max(...cards.map(card=>card.offsetWidth),colorHeading.offsetWidth);
+            const cardHeight=Math.max(...cards.map(card=>card.offsetHeight));
+            if((cardWidth+8)*scale>width) return available+1;
+            const columns=Math.max(1,Math.min(cards.length,Math.floor((width/scale)/(cardWidth+8))));
+            const rows=Math.ceil(cards.length/columns);
+            return overhead+(8+colorHeading.offsetHeight+8+rows*cardHeight+(rows-1)*8)*scale;
+          }
+          if(content.scrollWidth*scale>width+1) return available+1;
+          return overhead+content.scrollHeight*scale;
+        });
+      }
+      let low=0.001, high=1;
+      for(let i=0;i<12;i++) {
+        const mid=(low+high)/2, needed=requiredHeights(mid).reduce((a,b)=>a+b,0);
+        if(needed<=available) low=mid; else high=mid;
+      }
+      const heights=requiredHeights(low), spare=Math.max(0,available-heights.reduce((a,b)=>a+b,0));
+      table.style.gridTemplateRows=heights.map(height=>(height+spare/zones.length)+'px').join(' ');
     } else table.style.gridTemplateRows='';
     for(const id of ['runsGrid','groupsGrid','draftsGrid','rackTiles']) fitTileArea($(id));
   }
@@ -775,7 +814,7 @@ const Rummy = (() => {
     $('opponent').textContent='Computer: '+(game.racks[1].length-aiPlayed)+' tiles · '+(game.opened[1]?'opened':'needs 30');
     $('tableLegend').hidden=!opponentAdded.size&&!opponentMoved.size;
     $('rackTitle').textContent='Your rack · '+rack.length+' tiles';
-    $('opening').textContent=game.opened[0]?'Opened — table rearrangement allowed':'Opening required: 30+ from your rack';
+    $('opening').textContent=game.opened[0]?'Opened':'Opening: 30+';
     const groupColors=[2,1,3,0]; // Black, Blue, Orange, Red; never collapse missing slots.
     const counts={runs:0,groups:0,drafts:0};
     for(const kind of Object.keys(counts)) $(kind+'Grid').replaceChildren();
@@ -850,7 +889,7 @@ const Rummy = (() => {
     $('clear').disabled=!canPlay||!selection.size;
     $('undo').disabled=!canPlay||!undo.length;
     $('blocked').hidden=!(canPlay&&game.pool.length===0&&game.passes>=2);
-    $('draw').textContent=game.pool.length?'Draw 1 & end turn':'Pass — pool empty';
+    $('draw').textContent=game.pool.length?'Draw 1':'Pass';
     tick(); // Refresh the visible timer without changing its deadline.
   }
 
@@ -1007,7 +1046,7 @@ const Rummy = (() => {
     if (winner!==null) { change[winner]=award; change[1-winner]=-award; wins[winner]++; }
     totals=totals.map((n,i)=>n+change[i]); games++;
     const result=winner===null?'A tied blocked game.':names[winner]+(winner===0?' win!':' wins!');
-    const box=$('finished'); box.hidden=false; box.replaceChildren();
+    const box=$('finished'); box.replaceChildren();
     const h=document.createElement('h2'); h.textContent=result; box.appendChild(h);
     const p=document.createElement('p');
     p.textContent='This game — You: '+(change[0]>=0?'+':'')+change[0]+', Computer: '+(change[1]>=0?'+':'')+change[1]+
@@ -1015,6 +1054,10 @@ const Rummy = (() => {
     const total=document.createElement('p'); total.className='muted';
     total.textContent='Session: '+games+' games · Points '+totals[0]+' / '+totals[1]+' · Wins '+wins[0]+' / '+wins[1];
     box.appendChild(total);
+    const close=document.createElement('button'); close.textContent='View board'; close.dataset.close='finished'; box.appendChild(close);
+    const again=document.createElement('button'); again.textContent='New game';
+    again.addEventListener('click',()=>{box.close(); $('setup').showModal(); $('cancelNew').hidden=true;}); box.appendChild(again);
+    box.showModal();
     log(result+' Score: '+change[0]+' / '+change[1]+'.');
     message('Choose New game for another deal.'); notify(result+' Choose New game to play again.'); render();
   }
@@ -1030,7 +1073,7 @@ const Rummy = (() => {
     const pool=E.shuffle(ids), racks=[pool.splice(0,14),pool.splice(0,14)];
     game={pool,racks,table:[],opened:[false,false],turn:E.tiles[a].number>E.tiles[b].number?0:1,
       turnNumber:1,seconds:Number($('timing').value),over:false,passes:0,log:[]};
-    $('log').replaceChildren(); $('setup').hidden=true; $('game').hidden=false; $('finished').hidden=true;
+    $('log').replaceChildren(); ['setup','finished','help','logDialog'].forEach(id=>$(id).close()); $('game').hidden=false;
     log('Starting draw: You '+E.tiles[a].number+', Computer '+E.tiles[b].number+'. '+names[game.turn]+' start.');
     $('turnDock').hidden=false;
     notify(game.turn===0?'You start. Build sets or draw a tile.':'Opponent starts. Take a moment to look at your rack.');
@@ -1044,11 +1087,10 @@ const Rummy = (() => {
     const urgent=!game.over&&game.turn===0&&game.seconds&&left<=10;
     const clockText=game.over?'Finished':game.turn===1?(aiPreview?'Playing…':'Thinking…')
       :game.seconds?left+' seconds':'Practice · untimed';
-    $('clock').textContent=clockText; $('clock').className='badge'+(urgent?' urgent':'');
+    $('clock').textContent=clockText; $('clock').className='sr-only';
     $('dockTurn').textContent=game.over?'Game finished':game.turn===0?'Your turn':'Opponent’s turn';
     $('dockClock').textContent=game.over?'Finished':game.turn===1?clockText:game.seconds?left+'s':'No timer';
     $('turnDock').classList.toggle('urgent',Boolean(urgent));
-    positionDock();
     if (!game.over&&game.seconds&&left===0&&game.turn===0&&!busy) {
       const altered=JSON.stringify(draft.table)!==JSON.stringify(original.table)||!E.same(draft.rack,original.rack);
       const unfinished=altered&&!E.audit(original,draft,game.opened[0]).ok;
@@ -1076,10 +1118,17 @@ const Rummy = (() => {
   });
   $('start').addEventListener('click',startGame);
   $('newGame').addEventListener('click',()=>{
-    $('setup').hidden=false; $('cancelNew').hidden=!playing();
-    $('setup').scrollIntoView({behavior:'smooth',block:'nearest'});
+    $('setup').showModal(); $('cancelNew').hidden=!playing();
   });
-  $('cancelNew').addEventListener('click',()=>{$('setup').hidden=true;});
+  $('cancelNew').addEventListener('click',()=>{$('setup').close();});
+  $('helpButton').addEventListener('click',()=>{$('help').showModal();});
+  $('logButton').addEventListener('click',()=>{$('logDialog').showModal();});
+  document.addEventListener('click',event=>{
+    const close=event.target.closest('[data-close]');
+    if(close) $(close.dataset.close).close();
+  });
+  $('setup').addEventListener('cancel',event=>{if(!game) event.preventDefault();});
+  $('setup').showModal();
   $('sortColor').addEventListener('click',()=>sortRack('color'));
   $('sortNumber').addEventListener('click',()=>sortRack('number'));
   $('clear').addEventListener('click',()=>{selection.clear();render();});
@@ -1120,31 +1169,47 @@ const Rummy = (() => {
 </script>
 
 <script>
-// Streamlit's component protocol keeps the frame fitted to the game, including
-// on phones. The game also works when index.html is opened on its own.
+// Match the component to the host viewport, not the document's content height.
+// The grid inside handles available space; rules and logs use separate dialogs.
 (() => {
   if (window.parent === window) return;
   const send = (type, data = {}) => window.parent.postMessage(
     {isStreamlitMessage: true, type, ...data}, '*'
   );
-  let previousHeight = 0;
+  let previousHeight = 0, pending=0;
   function resize() {
-    const style = getComputedStyle(document.body);
-    const height = Math.ceil(document.querySelector('main').getBoundingClientRect().height
-      + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom));
+    let height=window.innerHeight;
+    try {
+      const viewport=window.parent.visualViewport;
+      const bottom=viewport?viewport.offsetTop+viewport.height:window.parent.innerHeight;
+      const top=window.frameElement.getBoundingClientRect().top;
+      height=Math.max(1,Math.floor(bottom-Math.max(0,top)-4));
+    } catch (_) { /* An external host can supply its own fixed frame height. */ }
     if (height !== previousHeight) {
       previousHeight = height;
       send('streamlit:setFrameHeight', {height});
     }
   }
+  function scheduleResize() {
+    cancelAnimationFrame(pending); pending=requestAnimationFrame(resize);
+  }
   window.addEventListener('message', event => {
-    if (event.source === window.parent && event.data?.type === 'streamlit:render') resize();
+    if (event.source === window.parent && event.data?.type === 'streamlit:render') scheduleResize();
   });
-  new ResizeObserver(resize).observe(document.querySelector('main'));
-  window.addEventListener('resize', resize);
+  window.addEventListener('resize',scheduleResize);
+  try {
+    window.parent.addEventListener('resize',scheduleResize);
+    window.parent.visualViewport?.addEventListener('resize',scheduleResize);
+    window.addEventListener('pagehide',()=>{
+      window.parent.removeEventListener('resize',scheduleResize);
+      window.parent.visualViewport?.removeEventListener('resize',scheduleResize);
+      cancelAnimationFrame(pending);
+    },{once:true});
+  } catch (_) { /* Parent access is optional for standalone embedding. */ }
   send('streamlit:componentReady', {apiVersion: 1});
   resize();
 })();
+
 </script>
 </body>
 </html>

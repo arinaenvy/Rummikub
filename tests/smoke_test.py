@@ -93,12 +93,10 @@ class BrowserSmokeTest(unittest.TestCase):
         g.locator("#newGame").click()
         g.locator("#cancelNew").click()
         expect(g.locator("#rack .tile")).to_have_count(staged_count + 1)
-        g.locator("#help summary").click()
+        g.locator("#helpButton").click()
         expect(g.locator("#help")).to_contain_text("Groups:")
-
-        # The floating timer stays in the actual host viewport after scrolling
-        # well below the original clock, on desktop and mobile.
-        g.locator("#help .panel").scroll_into_view_if_needed()
+        g.locator('[data-close="help"]').click()
+        self.assert_screen_fits()
         self.assert_dock_visible()
         expect(g.locator("#dockClock")).to_have_text("No timer")
 
@@ -135,6 +133,34 @@ class BrowserSmokeTest(unittest.TestCase):
             return frame.top + box.top >= 0 &&
                 frame.top + box.bottom <= window.innerHeight &&
                 frame.left + box.left >= 0 && frame.left + box.right <= window.innerWidth;
+        }""")
+
+    def assert_screen_fits(self):
+        # Check the actual game/control rectangles, not merely hidden scrollbars.
+        self.page.wait_for_function("""() => {
+            const frame=document.querySelector('iframe');
+            if(!frame?.contentDocument) return false;
+            const outer=frame.getBoundingClientRect(), view=frame.contentWindow, doc=frame.contentDocument;
+            const host=document.querySelector('[data-testid="stMain"]');
+            if(outer.top<0 || outer.bottom>innerHeight+1 || outer.right>innerWidth+1 ||
+               Math.abs(view.innerWidth-innerWidth)>1 || view.innerHeight<innerHeight-outer.top-8 ||
+               host.scrollHeight>host.clientHeight+1 ||
+               doc.documentElement.scrollHeight>view.innerHeight+1 ||
+               doc.documentElement.scrollWidth>view.innerWidth+1) return false;
+            const ids=['appHeader','message','tablePanel','table','rackPanel','rack',
+                'sortColor','sortNumber','clear','hint','newSet','return','undo','reset','end','draw','turnDock'];
+            if(!ids.every(id=>{
+                const el=doc.getElementById(id), box=el.getBoundingClientRect();
+                if(box.width<=0 || box.height<=0 || box.left<0 || box.top<0 ||
+                   box.right>view.innerWidth+1 || box.bottom>view.innerHeight+1) return false;
+                if(el.tagName==='BUTTON') return doc.elementFromPoint(box.x+box.width/2,box.y+box.height/2)?.closest('button')===el;
+                return true;
+            })) return false;
+            const table=doc.getElementById('tablePanel').getBoundingClientRect();
+            const rack=doc.getElementById('rackPanel').getBoundingClientRect();
+            const dock=doc.getElementById('turnDock').getBoundingClientRect();
+            return (table.bottom<=rack.top+1 || table.right<=rack.left+1) &&
+                Math.max(table.bottom,rack.bottom)<=dock.top+1;
         }""")
 
     def test_desktop_gameplay(self):
@@ -236,8 +262,8 @@ class BrowserSmokeTest(unittest.TestCase):
         expect(g.locator("#draw")).to_be_enabled()
         g.locator("#rack .tile").first.click()
         g.locator("#newSet").click()
-        g.locator("#help summary").click()
-        g.locator("#help .panel").scroll_into_view_if_needed()
+        g.locator("#helpButton").click()
+        g.locator('[data-close="help"]').click()
         self.page.clock.run_for(51_000)
         self.assert_dock_visible()
         # Browser interactions also consume real time; verify the final seconds
@@ -412,8 +438,7 @@ class BrowserSmokeTest(unittest.TestCase):
         }""")
         for width in [1280, 390, 768]:
             self.page.set_viewport_size({"width": width, "height": 900})
-            # Streamlit resizes its iframe asynchronously after the host viewport.
-            expect(self.game.locator("#table")).to_have_css("height", "440px" if width == 390 else "380px")
+            self.assert_screen_fits()
             self.frame.evaluate("window.dispatchEvent(new Event('resize'))")
             self.assert_tiles_fit()
             expect(self.game.locator("#table .tile")).to_have_count(105)
@@ -516,6 +541,47 @@ class BrowserSmokeTest(unittest.TestCase):
         expect(self.game.locator("#finished")).to_be_visible()
         expect(self.game.locator("#finished h2")).to_have_text("Computer wins!")
         expect(self.game.locator("#table .opponent-added")).to_have_count(14)
+
+    def test_entire_game_fits_desktop_small_phones_and_landscape(self):
+        self.prepare_grid_layout()
+        for ids in [[66,40,14],[26,28,30]]:
+            self.stage_set(ids)
+        for width,height in [(1366,768),(1024,600),(390,844),(375,667),(320,568),(844,390),(568,320)]:
+            with self.subTest(width=width,height=height):
+                self.page.set_viewport_size({"width":width,"height":height})
+                self.assert_screen_fits()
+                self.assert_tiles_fit()
+                self.assert_dock_visible()
+                expect(self.game.locator("#table .tile")).to_have_count(6)
+                expect(self.game.locator("#rack .tile")).to_have_count(8)
+        # An unfinished set gets its own area without pushing the controls away.
+        self.game.locator("#rack .tile").first.click()
+        self.game.locator("#newSet").click()
+        self.assert_screen_fits()
+        self.assert_tiles_fit()
+        expect(self.game.locator("#draftsZone")).to_be_visible()
+
+    def test_rules_log_and_new_game_dialogs_keep_the_board_in_place(self):
+        self.page.set_viewport_size({"width":375,"height":667})
+        self.prepare_grid_layout()
+        self.assert_screen_fits()
+        g=self.game
+        height=self.page.locator('iframe').get_attribute('height')
+        g.locator('#helpButton').click()
+        expect(g.locator('#help')).to_be_visible()
+        expect(g.locator('#help')).to_contain_text('Groups:')
+        self.page.keyboard.press('Escape')
+        expect(g.locator('#help')).to_be_hidden()
+        g.locator('#logButton').click()
+        expect(g.locator('#logDialog')).to_be_visible()
+        expect(g.locator('#log')).to_contain_text('Starting draw')
+        g.locator('[data-close="logDialog"]').click()
+        g.locator('#newGame').click()
+        expect(g.locator('#setup')).to_be_visible()
+        g.locator('#cancelNew').click()
+        expect(g.locator('#rack .tile')).to_have_count(14)
+        self.assertEqual(self.page.locator('iframe').get_attribute('height'),height)
+        self.assert_screen_fits()
 
 
 if __name__ == "__main__":

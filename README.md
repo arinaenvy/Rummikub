@@ -4,7 +4,7 @@ A browser tile game for one player against the computer, adapted from the suppli
 Colab game. Includes classic 60-second turns, untimed practice, jokers, a 30-point
 opening, table rearrangement, undo/reset, move suggestions, and session scoring.
 
-A floating panel keeps the timer and latest action visible while you scroll. The
+A bottom bar keeps the timer and latest action visible throughout play. The
 computer thinks for a random 15–35 seconds and normally pauses 2–4 seconds between
 its moves before your full 60-second turn begins. Large plays use shorter pauses
 to fit within 24 seconds of animation. Your latest drawn tiles carry a **NEW** badge, while
@@ -17,7 +17,12 @@ declines an immediate win, or misses a found move when the pool is empty. This
 adds occasional mistakes without changing the deal or looking at your rack.
 **Suggest move** always uses the full search and is unaffected by this behavior.
 
-The table and rack use fixed-size areas that automatically fit all their tiles.
+The whole game fits the current screen: table, rack, controls, and timer stay
+visible together. The layout adjusts when the window resizes or a phone rotates;
+short landscape screens put the rack beside the table. Rules, the game log, and
+new-game options open in dialogs instead of extending the page.
+
+The table and rack automatically fit all their tiles into the available space.
 Runs and groups are separate. Groups keep the color order **Black, Blue, Orange,
 Red**, with a blank slot for each missing color and jokers in the column they
 represent. Crowded tables add group stacks and shrink the tiles as needed;
